@@ -1,0 +1,102 @@
+name: 🏀 NBA Napi Adatfrissítés
+
+# ════════════════════════════════════════════════════════════════════════
+# ÜTEMEZÉS
+#   - Naponta 08:00 UTC (10:00 CEST / 09:00 CET)
+#   - Az NBA meccsek általában 02:00–05:00 UTC-re fejeződnek be
+#   - Kézi futtatás is lehetséges a GitHub Actions felületéről
+# ════════════════════════════════════════════════════════════════════════
+on:
+  schedule:
+    - cron: "0 8 * * *"    # naponta 08:00 UTC
+  workflow_dispatch:         # kézi indítás
+    inputs:
+      season:
+        description: "NBA szezon (pl. 2025-26)"
+        required: false
+        default: "2025-26"
+      dry_run:
+        description: "Csak letöltés Firebase feltöltés nélkül?"
+        required: false
+        default: "false"
+
+jobs:
+  fetch-and-upload:
+    name: Adatgyűjtés & Firebase feltöltés
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      # ── 1. Kód letöltése ───────────────────────────────────────────────
+      - name: 📥 Kód letöltése
+        uses: actions/checkout@v4
+
+      # ── 2. Python beállítása ──────────────────────────────────────────
+      - name: 🐍 Python 3.11 beállítása
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: fetcher/requirements.txt
+
+      # ── 3. Függőségek telepítése ──────────────────────────────────────
+      - name: 📦 Python csomagok telepítése
+        run: pip install -r fetcher/requirements.txt
+
+      # ── 4. Firebase service account JSON összerakása titkokból ────────
+      - name: 🔐 Firebase hitelesítés beállítása
+        working-directory: fetcher
+        run: |
+          echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}' > serviceAccount.json
+          echo "Service account fájl létrehozva."
+
+      # ── 5. .env fájl létrehozása ──────────────────────────────────────
+      - name: ⚙️ Környezeti változók beállítása
+        working-directory: fetcher
+        run: |
+          cat > .env << EOF
+          NBA_SEASON=${{ github.event.inputs.season || '2025-26' }}
+          REQUEST_DELAY=2.0
+          MIN_GAMES=10
+          FIREBASE_SERVICE_ACCOUNT=serviceAccount.json
+          EOF
+
+      # ── 6. Adatgyűjtő script futtatása ───────────────────────────────
+      - name: 🏀 NBA adatok letöltése és feltöltése
+        working-directory: fetcher
+        env:
+          NBA_SEASON: ${{ github.event.inputs.season || '2025-26' }}
+        run: |
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            echo "🔍 DRY RUN mód — Firebase feltöltés kihagyva"
+            python -c "
+          from fetch_stats import fetch_season_averages, fetch_last_n_averages, fetch_all_game_logs, fetch_team_stats
+          s = fetch_season_averages()
+          l5 = fetch_last_n_averages(5)
+          l10 = fetch_last_n_averages(10)
+          logs = fetch_all_game_logs()
+          teams = fetch_team_stats()
+          print(f'Szezonátlag: {len(s)} játékos')
+          print(f'L5: {len(l5)} játékos')
+          print(f'L10: {len(l10)} játékos')
+          print(f'Meccsnaplók: {sum(len(v) for v in logs.values())} bejegyzés')
+          print(f'Csapatok: {len(teams)}')
+          "
+          else
+            python fetcher/fetch_stats.py || python fetch_stats.py
+          fi
+
+      # ── 7. Service account törlése a biztonság érdekében ─────────────
+      - name: 🗑️ Érzékeny fájlok törlése
+        if: always()
+        working-directory: fetcher
+        run: |
+          rm -f serviceAccount.json .env
+          echo "Érzékeny fájlok törölve."
+
+      # ── 8. Értesítés sikertelenség esetén (opcionális) ────────────────
+      - name: 📢 Hiba értesítés
+        if: failure()
+        run: |
+          echo "❌ Az adatfrissítés sikertelen volt! Ellenőrizd a naplókat."
+          echo "Időpont: $(date -u '+%Y-%m-%d %H:%M UTC')"

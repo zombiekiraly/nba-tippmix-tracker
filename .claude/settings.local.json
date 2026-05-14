@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:docs.balldontlie.io)",
+      "WebFetch(domain:rapidapi.com)",
+      "WebFetch(domain:www.balldontlie.io)",
+      "WebFetch(domain:github.com)",
+      "Bash(mkdir -p /tmp/nba-tippmix-tracker/fetcher /tmp/nba-tippmix-tracker/frontend /tmp/nba-tippmix-tracker/.github/workflows && echo \"Könyvtárstruktúra létrehozva\")",
+      "Bash(pwd && ls ~)",
+      "Bash(cp -r /tmp/nba-tippmix-tracker/fetcher /Users/mertzattila/TippMixAI/)",
+      "Bash(cp -r /tmp/nba-tippmix-tracker/frontend /Users/mertzattila/TippMixAI/)",
+      "Bash(cp -r /tmp/nba-tippmix-tracker/.github /Users/mertzattila/TippMixAI/)",
+      "Bash(curl -s -o /dev/null -w '%{http_code} | time: %{time_total}s' -H 'User-Agent: Mozilla/5.0 \\(Macintosh; Intel Mac OS X 10_15_7\\) AppleWebKit/537.36' -H 'Referer: https://www.nba.com/' -H 'x-nba-stats-origin: stats' -H 'x-nba-stats-token: true' --max-time 30 'https://stats.nba.com/stats/leaguedashplayerstats?Season=2025-26&PerMode=PerGame&MeasureType=Base')"
+    ]
+  }
+}

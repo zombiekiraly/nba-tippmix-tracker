@@ -1,0 +1,27 @@
+# ── Python ───────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+.venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# ── Környezeti változók ───────────────────────────────────
+.env
+*.env.local
+
+# ── Firebase / API kulcsok — SOHA NE COMMITOLD! ────────────
+serviceAccount.json
+serviceAccountKey.json
+*firebase-adminsdk*.json
+google-services.json
+
+# ── Rendszer fájlok ───────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/settings.json
+*.swp
