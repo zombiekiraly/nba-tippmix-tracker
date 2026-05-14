@@ -37,7 +37,7 @@ log = logging.getLogger("nba-tracker")
 
 SEASON               = os.getenv("NBA_SEASON", "2025-26")
 SERVICE_ACCOUNT_PATH = os.getenv("FIREBASE_SERVICE_ACCOUNT", "serviceAccount.json")
-REQUEST_DELAY        = float(os.getenv("REQUEST_DELAY", "2.0"))
+REQUEST_DELAY        = float(os.getenv("REQUEST_DELAY", "3.0"))
 MIN_GAMES            = int(os.getenv("MIN_GAMES", "10"))
 BATCH_SIZE           = 450
 TIMEOUT_DEFAULT      = 45
