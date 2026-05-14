@@ -40,7 +40,7 @@ SERVICE_ACCOUNT_PATH = os.getenv("FIREBASE_SERVICE_ACCOUNT", "serviceAccount.jso
 REQUEST_DELAY        = float(os.getenv("REQUEST_DELAY", "3.0"))
 MIN_GAMES            = int(os.getenv("MIN_GAMES", "10"))
 BATCH_SIZE           = 450
-TIMEOUT_DEFAULT      = 45
+TIMEOUT_DEFAULT      = int(os.getenv("TIMEOUT_DEFAULT", "90"))
 
 # ── NBA.com böngésző-fejlécek ──────────────────────────────────────────────
 NBA_HEADERS = {
