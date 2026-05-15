@@ -633,7 +633,7 @@ const firebaseConfig = {
   }
 
   function getBestOuRate(player, stat, lines) {
-    const trends = player.ou_trends?.[stat];
+    const trends = player.ou_form?.[stat];
     if (!trends) return null;
     let best = null;
     for (const line of lines) {
@@ -828,7 +828,7 @@ const firebaseConfig = {
 
     for (const p of allPlayers) {
       if (search && !p.player_name.toLowerCase().includes(search)) continue;
-      const entry = p.ou_trends?.[stat]?.[String(line)];
+      const entry = p.ou_form?.[stat]?.[String(line)];
       if (!entry || entry.total < 5) continue;
       if (entry.pct < minPct) continue;
 
@@ -1192,7 +1192,7 @@ const firebaseConfig = {
     }).join("") || '<tr><td colspan="13">Nincs adat</td></tr>';
 
     // O/U kártyák
-    const ouTrends = p.ou_trends ?? {};
+    const ouTrends = p.ou_form ?? {};
     document.getElementById("modal-ou-cards").innerHTML =
       Object.entries(ouTrends).map(([stat, lines]) => {
         const statLabel = { pts:"PTS", ast:"AST", reb:"REB", fg3m:"3PM", fg2m:"2PM", stl:"STL", blk:"BLK" }[stat] ?? stat;
