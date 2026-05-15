@@ -14,7 +14,7 @@ jobs:
   fetch-and-upload:
     name: Adatgyűjtés & Firebase feltöltés
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
 
     steps:
       - name: 📥 Kód letöltése
@@ -40,23 +40,14 @@ jobs:
         run: |
           cat > .env << 'ENVEOF'
           NBA_SEASON=${{ github.event.inputs.season || '2025-26' }}
-          REQUEST_DELAY=5.0
-          TIMEOUT_DEFAULT=90
           MIN_GAMES=10
           FIREBASE_SERVICE_ACCOUNT=serviceAccount.json
           ENVEOF
-
-      # GitHub Actions Azure IP-k néha blokkolva vannak az NBA.com-on.
-      # 60 másodperces várakozás csökkenti a rate-limit valószínűségét.
-      - name: ⏳ Várakozás az NBA.com rate-limit elkerülésére
-        run: sleep 60
 
       - name: 🏀 NBA adatok letöltése és feltöltése
         working-directory: fetcher
         env:
           NBA_SEASON: ${{ github.event.inputs.season || '2025-26' }}
-          REQUEST_DELAY: "5.0"
-          TIMEOUT_DEFAULT: "90"
         run: python fetch_stats.py
 
       - name: 🗑️ Érzékeny fájlok törlése

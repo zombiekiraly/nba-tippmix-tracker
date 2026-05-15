@@ -1,7 +1,7 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
 ║   NBA Tippmix Tracker — Adatgyűjtő Backend Script                   ║
-║   Adatforrás : nba_api (stats.nba.com) — ingyenes, API kulcs nélkül ║
+║   Adatforrás : stats.nba.com (direct requests, nba_api nélkül)      ║
 ║   Tárolás    : Firebase Firestore                                    ║
 ║   Futtatás   : python fetch_stats.py  (vagy GitHub Actions cron)    ║
 ╚══════════════════════════════════════════════════════════════════════╝
@@ -10,17 +10,14 @@
 import os
 import sys
 import time
+import random
 import logging
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 
+import requests
 import firebase_admin
 from firebase_admin import credentials, firestore
-
-from nba_api.stats.endpoints import (
-    leaguedashplayerstats,
-    leaguedashteamstats,
-)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # KONFIGURÁCIÓ
@@ -37,27 +34,35 @@ log = logging.getLogger("nba-tracker")
 
 SEASON               = os.getenv("NBA_SEASON", "2025-26")
 SERVICE_ACCOUNT_PATH = os.getenv("FIREBASE_SERVICE_ACCOUNT", "serviceAccount.json")
-REQUEST_DELAY        = float(os.getenv("REQUEST_DELAY", "3.0"))
 MIN_GAMES            = int(os.getenv("MIN_GAMES", "10"))
-BATCH_SIZE           = 450
-TIMEOUT_DEFAULT      = int(os.getenv("TIMEOUT_DEFAULT", "90"))
+BATCH_SIZE           = 100
 
-# ── NBA.com böngésző-fejlécek ──────────────────────────────────────────────
+NBA_STATS_BASE = "https://stats.nba.com/stats"
+
+# Teljes Chrome 125 fejléckészlet — kötelező sorrendben
 NBA_HEADERS = {
-    "Accept":             "application/json, text/plain, */*",
-    "Accept-Encoding":    "gzip, deflate, br",
-    "Accept-Language":    "en-US,en;q=0.9",
-    "Connection":         "keep-alive",
-    "Host":               "stats.nba.com",
-    "Origin":             "https://www.nba.com",
-    "Referer":            "https://www.nba.com/",
+    "Accept":              "application/json, text/plain, */*",
+    "Accept-Encoding":     "gzip, deflate, br",
+    "Accept-Language":     "en-US,en;q=0.9",
+    "Cache-Control":       "no-cache",
+    "Connection":          "keep-alive",
+    "DNT":                 "1",
+    "Origin":              "https://www.nba.com",
+    "Pragma":              "no-cache",
+    "Referer":             "https://www.nba.com/",
+    "Sec-Ch-Ua":           '"Google Chrome";v="125", "Chromium";v="125", "Not.A/Brand";v="24"',
+    "Sec-Ch-Ua-Mobile":    "?0",
+    "Sec-Ch-Ua-Platform":  '"macOS"',
+    "Sec-Fetch-Dest":      "empty",
+    "Sec-Fetch-Mode":      "cors",
+    "Sec-Fetch-Site":      "same-site",
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
+        "Chrome/125.0.0.0 Safari/537.36"
     ),
-    "x-nba-stats-origin": "stats",
-    "x-nba-stats-token":  "true",
+    "x-nba-stats-origin":  "stats",
+    "x-nba-stats-token":   "true",
 }
 
 # ── Over/Under küszöbértékek (fogadási vonalak) ────────────────────────────
@@ -71,8 +76,9 @@ OU_THRESHOLDS = {
     "blk":  [0.5,  1.5],
 }
 
-# ── Globális Firestore kliens (init_firebase() állítja be) ─────────────────
-db = None
+# ── Globális állapot ───────────────────────────────────────────────────────
+db          = None
+nba_session = None
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -91,61 +97,224 @@ def safe_int(val):
     except (TypeError, ValueError):
         return 0
 
-def nba_api_call(endpoint_fn, description, timeout=TIMEOUT_DEFAULT, **kwargs):
+def parse_result_set(raw, index=0):
+    rs = raw["resultSets"][index]
+    return [dict(zip(rs["headers"], row)) for row in rs["rowSet"]]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# NBA.COM SESSION + DIREKT API HÍVÁS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def init_nba_session():
     """
-    Újrapróbálkozó wrapper NBA API hívásokhoz.
-    Böngésző-fejléceket küld (NBA.com bot-szűrő megkerülése).
-    Max 4 kísérlet, exponenciális visszalépéssel.
+    Létrehoz egy requests.Session-t, majd először meglátogatja
+    www.nba.com-ot, hogy megszerezze a session cookie-kat.
+    Ez döntő fontosságú: a stats.nba.com ellenőrzi, hogy van-e
+    aktív nba.com session a kérés előtt.
     """
+    global nba_session
+    nba_session = requests.Session()
+
+    warmup_headers = {
+        "User-Agent":      NBA_HEADERS["User-Agent"],
+        "Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection":      "keep-alive",
+        "DNT":             "1",
+        "Sec-Ch-Ua":       NBA_HEADERS["Sec-Ch-Ua"],
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"macOS"',
+        "Sec-Fetch-Dest":  "document",
+        "Sec-Fetch-Mode":  "navigate",
+        "Sec-Fetch-Site":  "none",
+        "Upgrade-Insecure-Requests": "1",
+    }
+
+    log.info("   Warmup: www.nba.com felkerese (cookie megszerzese)...")
+    try:
+        resp = nba_session.get(
+            "https://www.nba.com",
+            headers=warmup_headers,
+            timeout=30,
+            allow_redirects=True,
+        )
+        log.info("   Warmup OK: HTTP %d, %d cookie", resp.status_code, len(nba_session.cookies))
+    except Exception as exc:
+        log.warning("   Warmup sikertelen (%s) — folytatjuk cookie nelkul", str(exc)[:80])
+
+    # Rövid szünet, mintha egy ember böngészne
+    time.sleep(random.uniform(3.0, 6.0))
+
+
+def nba_api_call(endpoint, description, params, timeout=60):
+    """
+    Direkt GET kérés a stats.nba.com-ra.
+    Max 4 kísérlet, exponenciális + véletlen visszalépéssel.
+    """
+    global nba_session
+    if nba_session is None:
+        init_nba_session()
+
+    url = f"{NBA_STATS_BASE}/{endpoint}"
+
     for attempt in range(1, 5):
+        base_wait = random.uniform(6.0, 12.0) if attempt == 1 else random.uniform(20.0, 40.0)
+        log.info("   %s (kiserlet %d/4, %.0fs varakozas)...", description, attempt, base_wait)
+        time.sleep(base_wait)
+
         try:
-            log.info("   %s (kísérlet %d/4)...", description, attempt)
-            time.sleep(REQUEST_DELAY if attempt == 1 else REQUEST_DELAY * 2)
-            return endpoint_fn(
+            resp = nba_session.get(
+                url,
+                params=params,
                 headers=NBA_HEADERS,
                 timeout=timeout,
-                **kwargs
-            ).get_dict()
+            )
+            if resp.status_code == 429:
+                retry_after = int(resp.headers.get("Retry-After", 60))
+                log.warning("   Rate limit (429) — %ds varakozas...", retry_after)
+                time.sleep(retry_after)
+                continue
+            resp.raise_for_status()
+            return resp.json()
+
+        except requests.exceptions.Timeout:
+            wait = min(attempt * 25, 90)
+            log.warning("   Timeout — %ds varakozas...", wait)
+            if attempt == 4:
+                log.error("   SIKERTELEN (timeout): %s", description)
+                raise
+            time.sleep(wait)
+
+        except requests.exceptions.ConnectionError as exc:
+            wait = min(attempt * 25, 90)
+            log.warning("   Kapcsolati hiba: %s — %ds varakozas...", str(exc)[:80], wait)
+            if attempt == 4:
+                log.error("   SIKERTELEN (connection): %s", description)
+                raise
+            # Új session próbálkozás következő kísérlet előtt
+            nba_session = None
+            time.sleep(wait)
+
         except Exception as exc:
-            short = str(exc)[:100]
-            wait  = min(attempt * 15, 60)
-            log.warning("   Hiba: %s — %ds varako...", short, wait)
+            wait = min(attempt * 20, 60)
+            log.warning("   Hiba: %s — %ds varakozas...", str(exc)[:80], wait)
             if attempt == 4:
                 log.error("   SIKERTELEN: %s", description)
                 raise
             time.sleep(wait)
 
-def parse_result_set(raw, index=0):
-    rs = raw["resultSets"][index]
-    return [dict(zip(rs["headers"], row)) for row in rs["rowSet"]]
+
+# ── Alap paraméter-sablon (minden üres mezőt ki kell tölteni) ─────────────
+
+def _player_params(last_n=0, measure="Base"):
+    return {
+        "College":        "",
+        "Conference":     "",
+        "Country":        "",
+        "DateFrom":       "",
+        "DateTo":         "",
+        "Division":       "",
+        "DraftPick":      "",
+        "DraftYear":      "",
+        "GameScope":      "",
+        "GameSegment":    "",
+        "Height":         "",
+        "ISTRound":       "",
+        "LastNGames":     last_n,
+        "LeagueID":       "00",
+        "Location":       "",
+        "MeasureType":    measure,
+        "Month":          0,
+        "OpponentTeamID": 0,
+        "Outcome":        "",
+        "PORound":        0,
+        "PaceAdjust":     "N",
+        "PerMode":        "PerGame",
+        "Period":         0,
+        "PlayerExperience": "",
+        "PlayerPosition": "",
+        "PlusMinus":      "N",
+        "Rank":           "N",
+        "Season":         SEASON,
+        "SeasonSegment":  "",
+        "SeasonType":     "Regular Season",
+        "ShotClockRange": "",
+        "StarterBench":   "",
+        "TeamID":         0,
+        "TwoWay":         0,
+        "VsConference":   "",
+        "VsDivision":     "",
+        "Weight":         "",
+    }
+
+def _team_params(measure="Base"):
+    return {
+        "Conference":     "",
+        "DateFrom":       "",
+        "DateTo":         "",
+        "Division":       "",
+        "GameScope":      "",
+        "GameSegment":    "",
+        "ISTRound":       "",
+        "LastNGames":     0,
+        "LeagueID":       "00",
+        "Location":       "",
+        "MeasureType":    measure,
+        "Month":          0,
+        "OpponentTeamID": 0,
+        "Outcome":        "",
+        "PORound":        0,
+        "PaceAdjust":     "N",
+        "PerMode":        "PerGame",
+        "Period":         0,
+        "PlayerExperience": "",
+        "PlayerPosition": "",
+        "PlusMinus":      "N",
+        "Rank":           "N",
+        "Season":         SEASON,
+        "SeasonSegment":  "",
+        "SeasonType":     "Regular Season",
+        "ShotClockRange": "",
+        "StarterBench":   "",
+        "TeamID":         0,
+        "TwoWay":         0,
+        "VsConference":   "",
+        "VsDivision":     "",
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ADATKINYERŐ FÜGGVÉNYEK
+# ═══════════════════════════════════════════════════════════════════════════════
 
 def extract_avg(r):
-    """Egy LeagueDashPlayerStats sor -> stats szótár."""
     fgm  = safe_float(r.get("FGM",  0))
     fg3m = safe_float(r.get("FG3M", 0))
     fga  = safe_float(r.get("FGA",  0))
     fg3a = safe_float(r.get("FG3A", 0))
     return {
-        "pts":     safe_float(r.get("PTS",  0)),
-        "fgm":     fgm,
-        "fga":     fga,
-        "fg_pct":  safe_float((r.get("FG_PCT",  0) or 0) * 100),
-        "fg2m":    safe_float(fgm - fg3m),
-        "fg2a":    safe_float(fga - fg3a),
-        "fg3m":    fg3m,
-        "fg3a":    fg3a,
-        "fg3_pct": safe_float((r.get("FG3_PCT", 0) or 0) * 100),
-        "ftm":     safe_float(r.get("FTM",  0)),
-        "fta":     safe_float(r.get("FTA",  0)),
-        "ft_pct":  safe_float((r.get("FT_PCT",  0) or 0) * 100),
-        "oreb":    safe_float(r.get("OREB", 0)),
-        "dreb":    safe_float(r.get("DREB", 0)),
-        "reb":     safe_float(r.get("REB",  0)),
-        "ast":     safe_float(r.get("AST",  0)),
-        "stl":     safe_float(r.get("STL",  0)),
-        "blk":     safe_float(r.get("BLK",  0)),
-        "tov":     safe_float(r.get("TOV",  0)),
-        "min":     safe_float(r.get("MIN",  0)),
+        "pts":        safe_float(r.get("PTS",  0)),
+        "fgm":        fgm,
+        "fga":        fga,
+        "fg_pct":     safe_float((r.get("FG_PCT",  0) or 0) * 100),
+        "fg2m":       safe_float(fgm - fg3m),
+        "fg2a":       safe_float(fga - fg3a),
+        "fg3m":       fg3m,
+        "fg3a":       fg3a,
+        "fg3_pct":    safe_float((r.get("FG3_PCT", 0) or 0) * 100),
+        "ftm":        safe_float(r.get("FTM",  0)),
+        "fta":        safe_float(r.get("FTA",  0)),
+        "ft_pct":     safe_float((r.get("FT_PCT",  0) or 0) * 100),
+        "oreb":       safe_float(r.get("OREB", 0)),
+        "dreb":       safe_float(r.get("DREB", 0)),
+        "reb":        safe_float(r.get("REB",  0)),
+        "ast":        safe_float(r.get("AST",  0)),
+        "stl":        safe_float(r.get("STL",  0)),
+        "blk":        safe_float(r.get("BLK",  0)),
+        "tov":        safe_float(r.get("TOV",  0)),
+        "min":        safe_float(r.get("MIN",  0)),
         "plus_minus": safe_float(r.get("PLUS_MINUS", 0)),
     }
 
@@ -155,13 +324,10 @@ def extract_avg(r):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def fetch_season_averages():
-    """Összes játékos aktuális szezon PerGame átlaga. {player_id: {...}}"""
     raw  = nba_api_call(
-        leaguedashplayerstats.LeagueDashPlayerStats,
+        "leaguedashplayerstats",
         "Szezonátlagok (összes játékos)",
-        season=SEASON,
-        per_mode_detailed="PerGame",
-        measure_type_detailed_defense="Base",
+        _player_params(last_n=0),
     )
     rows = parse_result_set(raw)
     result = {}
@@ -184,14 +350,10 @@ def fetch_season_averages():
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def fetch_last_n_averages(n):
-    """Összes játékos utolsó N meccsének PerGame átlaga. {player_id: {...}}"""
     raw  = nba_api_call(
-        leaguedashplayerstats.LeagueDashPlayerStats,
+        "leaguedashplayerstats",
         "Utolso %d meccs atlagok" % n,
-        season=SEASON,
-        per_mode_detailed="PerGame",
-        measure_type_detailed_defense="Base",
-        last_n_games=n,
+        _player_params(last_n=n),
     )
     rows = parse_result_set(raw)
     result = {}
@@ -202,42 +364,11 @@ def fetch_last_n_averages(n):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 3. FORMA-ALAPÚ O/U TRENDEK (PlayerGameLogs nélkül)
-#
-#  Az NBA.com stats/playergamelogs végpont az egész szezon ~30 000 sorát
-#  nem tudja megbízhatóan visszaadni (timeout). Helyette:
-#  4 ablakból (Szezon / L20 / L10 / L5) megvizsgáljuk, hogy az átlag
-#  meghaladja-e a küszöbértéket. Ez adja a "forma-alapú O/U score"-t.
-#
-#  Példa: ha PTS átlag >20.5 a szezon, L20, L10 és L5 ablakokban is
-#         → score = 4/4 = 100% → erős OVER tendencia
+# 3. FORMA-ALAPÚ O/U TRENDEK
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def compute_ou_form(season_avg, l5_avg, l10_avg, l20_avg):
-    """
-    Forma-alapú O/U score kiszámítása 4 időablak alapján.
-
-    Visszatérési érték:
-    {
-        "pts": {
-            "20.5": {
-                "windows":    4,        # hány ablakban vizsgáltuk
-                "over_count": 3,        # hány ablakban volt az átlag > küszöb
-                "pct":        75.0,     # over_count/windows * 100
-                "avgs": {               # az átlagok az egyes ablakokban
-                    "season": 22.1,
-                    "l20":    24.3,
-                    "l10":    26.5,
-                    "l5":     27.8,
-                },
-                "trend": "hot"          # hot / good / neutral / cold / under
-            },
-            ...
-        },
-        ...
-    }
-    """
-    result = {}
+    result  = {}
     windows = [
         ("season", season_avg),
         ("l20",    l20_avg),
@@ -284,28 +415,9 @@ def compute_ou_form(season_avg, l5_avg, l10_avg, l20_avg):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def fetch_team_stats():
-    """Csapat alap + haladó + ellenfél statisztikák."""
-    raw_base = nba_api_call(
-        leaguedashteamstats.LeagueDashTeamStats,
-        "Csapat alapstatisztikák (PerGame)",
-        season=SEASON,
-        per_mode_detailed="PerGame",
-        measure_type_detailed_defense="Base",
-    )
-    raw_adv = nba_api_call(
-        leaguedashteamstats.LeagueDashTeamStats,
-        "Csapat halado statisztikák (pace, rating)",
-        season=SEASON,
-        per_mode_detailed="PerGame",
-        measure_type_detailed_defense="Advanced",
-    )
-    raw_opp = nba_api_call(
-        leaguedashteamstats.LeagueDashTeamStats,
-        "Ellenfél statisztikák (kapott pontok)",
-        season=SEASON,
-        per_mode_detailed="PerGame",
-        measure_type_detailed_defense="Opponent",
-    )
+    raw_base = nba_api_call("leaguedashteamstats", "Csapat alapstatisztikák",  _team_params("Base"))
+    raw_adv  = nba_api_call("leaguedashteamstats", "Csapat haladó statisztikák", _team_params("Advanced"))
+    raw_opp  = nba_api_call("leaguedashteamstats", "Ellenfél statisztikák",    _team_params("Opponent"))
 
     def to_map(raw):
         rows = parse_result_set(raw)
@@ -317,8 +429,8 @@ def fetch_team_stats():
 
     team_list = []
     for tid, b in base_map.items():
-        a = adv_map.get(tid, {})
-        o = opp_map.get(tid, {})
+        a         = adv_map.get(tid, {})
+        o         = opp_map.get(tid, {})
         pts_for   = safe_float(b.get("PTS", 0))
         opp_pts   = safe_float(o.get("OPP_PTS", 0))
         team_list.append({
@@ -356,11 +468,21 @@ def fetch_team_stats():
 # 5. FIREBASE FELTÖLTÉS
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def commit_batch_with_retry(batch, label="batch"):
+    for attempt in range(1, 5):
+        try:
+            batch.commit()
+            return
+        except Exception as exc:
+            wait = attempt * 5
+            log.warning("   Firebase commit hiba (%s, kiserlet %d/4): %s — %ds varakozas",
+                        label, attempt, str(exc)[:80], wait)
+            if attempt == 4:
+                raise
+            time.sleep(wait)
+
+
 def upload_player_averages(season_data, last5_data, last10_data, last20_data):
-    """
-    Összerakja és feltölti az összes játékos-dokumentumot a
-    Firestore player_averages kollekcióba. Batch írással.
-    """
     log.info("Jatekos adatok feltoltese Firebase-be...")
     db_ref  = db.collection("player_averages")
     batch   = db.batch()
@@ -398,12 +520,12 @@ def upload_player_averages(season_data, last5_data, last10_data, last20_data):
         count += 1
 
         if count % BATCH_SIZE == 0:
-            batch.commit()
+            commit_batch_with_retry(batch, label=f"{count} jatekos")
             log.info("   ... %d jatekos feltoltve", count)
             batch = db.batch()
-            time.sleep(0.3)
+            time.sleep(1.0)
 
-    batch.commit()
+    commit_batch_with_retry(batch, label="vegso batch")
     log.info("   OK: %d jatekos feltoltve, %d kihagyva (keves meccs)", count, skipped)
 
 
@@ -412,7 +534,7 @@ def upload_team_stats(team_list):
     batch = db.batch()
     for team in team_list:
         batch.set(db.collection("team_stats").document(team["team_id"]), team)
-    batch.commit()
+    commit_batch_with_retry(batch, label="team_stats")
     log.info("   OK: %d csapat feltoltve", len(team_list))
 
 
@@ -446,6 +568,9 @@ def main():
 
     init_firebase()
     start = time.time()
+
+    log.info("=== NBA SESSION INIT ===")
+    init_nba_session()
 
     log.info("=== ADATLETOLTES ===")
     season_data = fetch_season_averages()
