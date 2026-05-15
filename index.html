@@ -43,6 +43,9 @@
   <button class="tab-btn" data-tab="ou-analyzer">
     📊 O/U Elemző
   </button>
+  <button class="tab-btn" data-tab="tempo">
+    ⚡ Tempó Elemző
+  </button>
 </nav>
 
 <!-- ══════════════════════════════════════════════════════════════════════
@@ -249,6 +252,77 @@
         <tr class="placeholder-row">
           <td colspan="11">⏳ Adatok betöltése…</td>
         </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     TAB: TEMPÓ ELEMZŐ
+══════════════════════════════════════════════════════════════════════ -->
+<section id="tab-tempo" class="tab-content">
+
+  <div class="tempo-intro">
+    <strong>Hogyan működik?</strong> Minden NBA csapatnak van egy <em>pace</em> értéke — ennyi birtok (possession) zajlik 48 perc alatt.
+    Amikor egy lassú csapat gyors ellenféllel játszik, a meccs tempója a kettő átlaga lesz: <em>több birtok → több kísérlet → több pont</em>.
+    A várható pontszám képlete: <code>csapat PTS/G × (meccs pace ÷ saját pace)</code>.
+    Ez közvetlenül befolyásolja a játékos propokat és a meccs O/U vonalat.
+  </div>
+
+  <!-- Meccselemző választók -->
+  <div class="controls-bar">
+    <div class="control-group">
+      <label>🏟 Hazai csapat</label>
+      <select id="tempo-team-a" style="min-width:230px">
+        <option value="">— válassz csapatot —</option>
+      </select>
+    </div>
+    <div class="tempo-vs-label">VS</div>
+    <div class="control-group">
+      <label>✈ Vendég csapat</label>
+      <select id="tempo-team-b" style="min-width:230px">
+        <option value="">— válassz csapatot —</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Meccselemzés eredménykártya -->
+  <div id="matchup-result-card" style="display:none"></div>
+
+  <!-- Játékos props tempókorrekció -->
+  <div id="tempo-player-props" style="display:none">
+    <h3 class="section-title" style="margin-top:4px">Játékos props — tempókorrekció</h3>
+    <p class="tempo-props-hint">A szezonátlagok korrigálva a meccs tempójával. A <em>várható</em> értékek jelzik, mire fogadj a props piacokon.</p>
+    <div id="tempo-players-grid"></div>
+  </div>
+
+  <!-- Pace rangsor -->
+  <h3 class="section-title" style="margin-top:28px">⚡ Csapat tempó rangsor</h3>
+  <div class="tempo-legend-bar">
+    <span class="pace-tier-badge pace-fast">GYORS (top 10)</span>
+    <span class="pace-tier-badge pace-avg">ÁTLAG (közép 10)</span>
+    <span class="pace-tier-badge pace-slow">LASSÚ (bottom 10)</span>
+    <span class="tempo-legend-note">+vs Gyors% = mennyivel több/kevesebb pontot dob egy átlag gyors csapat ellen · +vs Lassú% = ugyanez lassú ellen</span>
+  </div>
+  <div class="table-wrapper">
+    <table id="pace-table" class="data-table">
+      <thead>
+        <tr>
+          <th class="col-rank">#</th>
+          <th class="col-name">Csapat</th>
+          <th style="width:72px">Tier</th>
+          <th class="col-stat" title="Possession / 48 perc">Pace</th>
+          <th class="col-stat">PTS/G</th>
+          <th class="col-stat">Opp/G</th>
+          <th class="col-stat" title="Dobott + kapott pontok — fogadási Total alap">Total</th>
+          <th class="col-stat" title="Mennyivel dob többet/kevesebbet átlag GYORS csapat ellen">+vs Gyors%</th>
+          <th class="col-stat" title="Mennyivel dob többet/kevesebbet átlag LASSÚ csapat ellen">+vs Lassú%</th>
+          <th class="col-stat">OffRtg</th>
+          <th class="col-stat">DefRtg</th>
+        </tr>
+      </thead>
+      <tbody id="pace-tbody">
+        <tr class="placeholder-row"><td colspan="11">⏳ Adatok betöltése…</td></tr>
       </tbody>
     </table>
   </div>
@@ -653,6 +727,235 @@ const firebaseConfig = {
   }
 
   // ════════════════════════════════════════════════════════════════════════
+  // TEMPÓ ELEMZŐ
+  // ════════════════════════════════════════════════════════════════════════
+
+  const PACE_TIER_LABEL = { fast: 'GYORS', avg: 'ÁTLAG', slow: 'LASSÚ' };
+  const PACE_TIER_CSS   = { fast: 'pace-fast', avg: 'pace-avg', slow: 'pace-slow' };
+
+  function getPaceTierMap(teams) {
+    const sorted = [...teams].sort((a, b) => b.pace - a.pace);
+    const map = {};
+    sorted.forEach((t, i) => { map[t.team_id] = i < 10 ? 'fast' : i < 20 ? 'avg' : 'slow'; });
+    return map;
+  }
+
+  function paceAdjust(teamPts, teamPace, opponentPace) {
+    const matchupPace = (teamPace + opponentPace) / 2;
+    const factor = matchupPace / teamPace;
+    return { expPts: teamPts * factor, pctChg: (factor - 1) * 100, factor };
+  }
+
+  function renderTempoTab() {
+    if (!allTeams.length) return;
+    const sorted = [...allTeams].sort((a, b) => b.pace - a.pace);
+    const tierMap = getPaceTierMap(allTeams);
+    const fastPace = sorted.slice(0, 10).reduce((s, t) => s + t.pace, 0) / 10;
+    const slowPace = sorted.slice(20).reduce((s, t) => s + t.pace, 0) / 10;
+
+    // Dropdownok feltöltése (csak egyszer)
+    ['tempo-team-a', 'tempo-team-b'].forEach((selId, idx) => {
+      const sel = document.getElementById(selId);
+      if (sel.children.length > 1) return;
+      sorted.forEach(t => {
+        const o = document.createElement('option');
+        o.value = t.team_id;
+        o.textContent = `${t.team_abbreviation} — ${t.team_name}`;
+        sel.appendChild(o);
+      });
+      if (idx === 1 && sorted.length > 1) sel.selectedIndex = 1;
+    });
+
+    // Pace rangsor tábla
+    document.getElementById('pace-tbody').innerHTML = sorted.map((t, i) => {
+      const tier = tierMap[t.team_id];
+      const vsFast = paceAdjust(t.pts_per_game, t.pace, fastPace);
+      const vsSlow = paceAdjust(t.pts_per_game, t.pace, slowPace);
+      const fC = vsFast.pctChg, sC = vsSlow.pctChg;
+      return `
+        <tr>
+          <td class="col-rank">${i + 1}</td>
+          <td class="col-name team-name-cell">
+            <span class="team-badge">${t.team_abbreviation}</span>
+            <span class="team-full-name">${t.team_name}</span>
+          </td>
+          <td style="text-align:center">
+            <span class="pace-tier-badge ${PACE_TIER_CSS[tier]}">${PACE_TIER_LABEL[tier]}</span>
+          </td>
+          <td class="col-stat"><strong>${fmt(t.pace)}</strong></td>
+          <td class="col-stat">${fmt(t.pts_per_game)}</td>
+          <td class="col-stat">${fmt(t.opp_pts_per_game)}</td>
+          <td class="col-stat">${fmt(t.total_pts_per_game)}</td>
+          <td class="col-stat ${fC >= 0 ? 'stat-positive' : 'stat-negative'}">${fC > 0 ? '+' : ''}${fmt(fC)}%</td>
+          <td class="col-stat ${sC >= 0 ? 'stat-positive' : 'stat-negative'}">${sC > 0 ? '+' : ''}${fmt(sC)}%</td>
+          <td class="col-stat">${fmt(t.off_rating)}</td>
+          <td class="col-stat">${fmt(t.def_rating)}</td>
+        </tr>`;
+    }).join('');
+
+    renderMatchupAnalysis();
+  }
+
+  function renderMatchupAnalysis() {
+    const aId = document.getElementById('tempo-team-a').value;
+    const bId = document.getElementById('tempo-team-b').value;
+    const card  = document.getElementById('matchup-result-card');
+    const props = document.getElementById('tempo-player-props');
+
+    if (!aId || !bId || aId === bId) {
+      card.style.display = 'none';
+      props.style.display = 'none';
+      return;
+    }
+
+    const tA = allTeams.find(t => t.team_id === aId);
+    const tB = allTeams.find(t => t.team_id === bId);
+    if (!tA || !tB) return;
+
+    const tierMap     = getPaceTierMap(allTeams);
+    const matchupPace = (tA.pace + tB.pace) / 2;
+    const aAdj        = paceAdjust(tA.pts_per_game, tA.pace, tB.pace);
+    const bAdj        = paceAdjust(tB.pts_per_game, tB.pace, tA.pace);
+    const expectedTotal = aAdj.expPts + bAdj.expPts;
+    const normalTotal   = tA.pts_per_game + tB.pts_per_game;
+    const totalPct      = (expectedTotal - normalTotal) / normalTotal * 100;
+    const paceDiff      = Math.abs(tA.pace - tB.pace);
+    const impactLevel   = paceDiff < 2 ? 'Minimális' : paceDiff < 5 ? 'Enyhe' : paceDiff < 10 ? 'Közepes' : 'Erős';
+
+    const totalVerdict = totalPct > 1.5 ? '🔥 OVER irány — gyorsabb meccs várható'
+      : totalPct < -1.5 ? '❄️ UNDER irány — lassabb meccs várható'
+      : '⚖️ Semleges — tempó közel átlagos';
+
+    const teamCard = (t, adj, tier) => `
+      <div class="mc-team">
+        <div class="mc-team-header">
+          <span class="mc-abbr">${t.team_abbreviation}</span>
+          <span class="pace-tier-badge ${PACE_TIER_CSS[tier]}">${PACE_TIER_LABEL[tier]}</span>
+        </div>
+        <div class="mc-team-name">${t.team_name}</div>
+        <div class="mc-rows">
+          <div class="mc-row"><span>Saját pace</span><strong>${fmt(t.pace)}</strong></div>
+          <div class="mc-row"><span>Szezon PTS/G</span><strong>${fmt(t.pts_per_game)}</strong></div>
+          <div class="mc-row"><span>Opp PTS/G</span><strong>${fmt(t.opp_pts_per_game)}</strong></div>
+          <div class="mc-row mc-highlight">
+            <span>Várható PTS</span>
+            <strong class="mc-exp-pts">${fmt(adj.expPts)}</strong>
+            <span class="mc-pct ${adj.pctChg >= 0 ? 'pos' : 'neg'}">${adj.pctChg >= 0 ? '+' : ''}${fmt(adj.pctChg)}%</span>
+          </div>
+          <div class="mc-bar-wrap">
+            <div class="mc-bar-fill ${adj.pctChg >= 0 ? 'pos' : 'neg'}"
+                 style="width:${Math.min(Math.abs(adj.pctChg) * 18, 100)}%"></div>
+          </div>
+        </div>
+      </div>`;
+
+    card.style.display = 'block';
+    card.innerHTML = `
+      <div class="matchup-grid">
+        ${teamCard(tA, aAdj, tierMap[tA.team_id])}
+        <div class="mc-center">
+          <div class="mc-pace-block">
+            <div class="mc-pace-val">${fmt(matchupPace)}</div>
+            <div class="mc-pace-label">Meccs pace</div>
+          </div>
+          <div class="mc-vs">VS</div>
+          <div class="mc-total-block">
+            <div class="mc-total-val">${fmt(expectedTotal)}</div>
+            <div class="mc-total-label">Várható Total</div>
+            <div class="mc-total-normal">Szezon avg: ${fmt(normalTotal)}</div>
+            <div class="mc-total-pct ${totalPct >= 0 ? 'pos' : 'neg'}">${totalPct >= 0 ? '+' : ''}${fmt(totalPct)}%</div>
+          </div>
+          <div class="mc-impact-block">
+            <span class="mc-impact-label">Tempó hatás erőssége</span>
+            <span class="mc-impact-val">${impactLevel} (±${fmt(paceDiff)} pace)</span>
+          </div>
+          <div class="mc-verdict">${totalVerdict}</div>
+        </div>
+        ${teamCard(tB, bAdj, tierMap[tB.team_id])}
+      </div>`;
+
+    renderTempoPlayerProps(tA, tB, aAdj.factor, bAdj.factor);
+  }
+
+  function renderTempoPlayerProps(tA, tB, aFactor, bFactor) {
+    const section = document.getElementById('tempo-player-props');
+    const grid    = document.getElementById('tempo-players-grid');
+
+    const topPlayers = (abbr, factor) =>
+      allPlayers
+        .filter(p => p.team_abbreviation === abbr && p.games_played >= 10)
+        .sort((a, b) => (b.season_avg?.pts ?? 0) - (a.season_avg?.pts ?? 0))
+        .slice(0, 6)
+        .map(p => {
+          const s = p.season_avg ?? {};
+          return {
+            pid: p.player_id, name: p.player_name,
+            pts: s.pts ?? 0, ast: s.ast ?? 0, reb: s.reb ?? 0, fg3m: s.fg3m ?? 0,
+            expPts: (s.pts ?? 0) * factor,
+            expAst: (s.ast ?? 0) * factor,
+            expReb: (s.reb ?? 0) * factor,
+            pctChg: (factor - 1) * 100,
+          };
+        });
+
+    const playersA = topPlayers(tA.team_abbreviation, aFactor);
+    const playersB = topPlayers(tB.team_abbreviation, bFactor);
+    if (!playersA.length && !playersB.length) { section.style.display = 'none'; return; }
+
+    const playerTable = (players, teamName, pct) => {
+      if (!players.length) return '';
+      const pctStr = `${pct >= 0 ? '+' : ''}${fmt(pct)}%`;
+      return `
+        <div class="tempo-team-props">
+          <div class="ttp-header">
+            <strong>${teamName}</strong>
+            <span class="mc-pct ${pct >= 0 ? 'pos' : 'neg'}">${pctStr} tempókorrekció</span>
+          </div>
+          <div class="table-wrapper" style="border:none;border-radius:0">
+            <table class="data-table mini-table">
+              <thead><tr>
+                <th class="col-name">Játékos</th>
+                <th class="col-stat" title="Szezonátlag">PTS avg</th>
+                <th class="col-stat" title="Tempókorrigált várható érték">PTS várható</th>
+                <th class="col-stat">AST avg</th>
+                <th class="col-stat">AST várható</th>
+                <th class="col-stat">REB avg</th>
+                <th class="col-stat">REB várható</th>
+                <th class="col-stat">3PM avg</th>
+              </tr></thead>
+              <tbody>
+                ${players.map(p => `
+                  <tr>
+                    <td class="col-name" style="text-align:left">
+                      <button class="player-link" data-pid="${p.pid}">${p.name}</button>
+                    </td>
+                    <td class="col-stat muted">${fmt(p.pts)}</td>
+                    <td class="col-stat stat-pts"><strong>${fmt(p.expPts)}</strong></td>
+                    <td class="col-stat muted">${fmt(p.ast)}</td>
+                    <td class="col-stat">${fmt(p.expAst)}</td>
+                    <td class="col-stat muted">${fmt(p.reb)}</td>
+                    <td class="col-stat">${fmt(p.expReb)}</td>
+                    <td class="col-stat">${fmt(p.fg3m)}</td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>`;
+    };
+
+    section.style.display = 'block';
+    grid.innerHTML = `
+      <div class="tempo-props-columns">
+        ${playerTable(playersA, tA.team_name, (aFactor - 1) * 100)}
+        ${playerTable(playersB, tB.team_name, (bFactor - 1) * 100)}
+      </div>`;
+
+    grid.querySelectorAll('.player-link').forEach(btn => {
+      btn.addEventListener('click', () => openPlayerModal(btn.dataset.pid));
+    });
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
   // JÁTÉKOS RÉSZLETES MODAL
   // ════════════════════════════════════════════════════════════════════════
 
@@ -777,6 +1080,10 @@ const firebaseConfig = {
       document.getElementById(`tab-${btn.dataset.tab}`).classList.add("active");
 
       if (btn.dataset.tab === "teams" && allTeams.length === 0) loadTeams();
+      if (btn.dataset.tab === "tempo") {
+        if (allTeams.length === 0) loadTeams().then(() => renderTempoTab());
+        else renderTempoTab();
+      }
     });
   });
 
@@ -823,6 +1130,10 @@ const firebaseConfig = {
     document.getElementById(id)?.addEventListener("input", renderOuTable);
     document.getElementById(id)?.addEventListener("change", renderOuTable);
   });
+
+  // Tempó csapat választók
+  document.getElementById("tempo-team-a")?.addEventListener("change", renderMatchupAnalysis);
+  document.getElementById("tempo-team-b")?.addEventListener("change", renderMatchupAnalysis);
 
   // Modal bezárás
   document.getElementById("modal-close")?.addEventListener("click", closeModal);

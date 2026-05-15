@@ -593,6 +593,289 @@ body {
   .avg-card-row { grid-template-columns: 50px 1fr 1fr 1fr; }
 }
 
+/* ── TEMPÓ ELEMZŐ ──────────────────────────────────────────────────────── */
+
+.tempo-intro {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  margin-bottom: 16px;
+  color: var(--text-muted);
+  font-size: .85rem;
+  line-height: 1.7;
+}
+.tempo-intro strong { color: var(--text); }
+.tempo-intro code {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: .82rem;
+  padding: 1px 6px;
+}
+
+.tempo-vs-label {
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--text-dim);
+  align-self: flex-end;
+  padding-bottom: 8px;
+}
+
+.tempo-legend-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.tempo-legend-note {
+  color: var(--text-dim);
+  font-size: .75rem;
+  margin-left: 4px;
+}
+
+/* Pace tier badge-ek */
+.pace-tier-badge {
+  border-radius: 10px;
+  font-size: .68rem;
+  font-weight: 800;
+  letter-spacing: .5px;
+  padding: 2px 9px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.pace-fast { background: rgba(255, 107, 53, .15); color: #ff6b35; border: 1px solid rgba(255,107,53,.4); }
+.pace-avg  { background: rgba(123, 128, 168, .12); color: var(--text-muted); border: 1px solid var(--border); }
+.pace-slow { background: rgba(52, 152, 219, .15); color: #3498db; border: 1px solid rgba(52,152,219,.4); }
+
+/* ── Matchup kártya ─────────────────────────────────────────────────────── */
+.matchup-grid {
+  display: grid;
+  grid-template-columns: 1fr 200px 1fr;
+  gap: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 20px;
+  overflow: hidden;
+}
+
+.mc-team {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mc-team-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.mc-abbr {
+  font-size: 1.7rem;
+  font-weight: 800;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  letter-spacing: -1px;
+}
+
+.mc-team-name {
+  color: var(--text);
+  font-weight: 600;
+  font-size: .88rem;
+}
+
+.mc-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.mc-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: .82rem;
+  color: var(--text-muted);
+}
+.mc-row strong { color: var(--text); font-weight: 700; }
+
+.mc-row.mc-highlight {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+}
+
+.mc-exp-pts {
+  font-size: 1.05rem;
+  color: var(--text) !important;
+}
+
+.mc-pct {
+  border-radius: 10px;
+  font-size: .78rem;
+  font-weight: 800;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.mc-pct.pos { background: rgba(46, 204, 113, .15); color: var(--green); }
+.mc-pct.neg { background: rgba(231, 76, 60, .15);  color: var(--red); }
+
+.mc-bar-wrap {
+  background: var(--bg);
+  border-radius: 3px;
+  height: 5px;
+  overflow: hidden;
+}
+.mc-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  min-width: 2px;
+  transition: width .5s ease;
+}
+.mc-bar-fill.pos { background: var(--green); }
+.mc-bar-fill.neg { background: var(--red); }
+
+/* Center oszlop */
+.mc-center {
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 20px 12px;
+  background: linear-gradient(180deg, var(--bg) 0%, var(--bg-card) 100%);
+}
+
+.mc-vs {
+  font-size: .9rem;
+  font-weight: 800;
+  color: var(--text-dim);
+  letter-spacing: 2px;
+}
+
+.mc-pace-block { text-align: center; }
+.mc-pace-val {
+  font-size: 1.8rem;
+  font-weight: 800;
+  color: var(--accent);
+  line-height: 1;
+}
+.mc-pace-label {
+  color: var(--text-muted);
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .5px;
+  margin-top: 3px;
+  text-transform: uppercase;
+}
+
+.mc-total-block { text-align: center; }
+.mc-total-val {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--text);
+  line-height: 1;
+}
+.mc-total-label {
+  color: var(--text-muted);
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .5px;
+  margin-top: 3px;
+  text-transform: uppercase;
+}
+.mc-total-normal { color: var(--text-dim); font-size: .73rem; margin-top: 2px; }
+.mc-total-pct {
+  font-size: .82rem;
+  font-weight: 800;
+  margin-top: 4px;
+}
+.mc-total-pct.pos { color: var(--green); }
+.mc-total-pct.neg { color: var(--red); }
+
+.mc-impact-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-align: center;
+}
+.mc-impact-label { color: var(--text-dim); font-size: .68rem; text-transform: uppercase; letter-spacing: .4px; }
+.mc-impact-val   { color: var(--text); font-size: .78rem; font-weight: 700; }
+
+.mc-verdict {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: .75rem;
+  font-weight: 600;
+  padding: 6px 10px;
+  text-align: center;
+  width: 100%;
+}
+
+/* ── Játékos props ──────────────────────────────────────────────────────── */
+.tempo-props-hint {
+  color: var(--text-muted);
+  font-size: .82rem;
+  margin-bottom: 12px;
+}
+.tempo-props-hint em { color: var(--accent); font-style: normal; }
+
+.tempo-props-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.tempo-team-props {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.ttp-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  font-size: .85rem;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ── Reszponzív ─────────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .matchup-grid { grid-template-columns: 1fr; }
+  .mc-center {
+    border-left: none; border-right: none;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: space-around;
+    padding: 14px;
+  }
+  .mc-verdict { width: auto; }
+  .tempo-props-columns { grid-template-columns: 1fr; }
+}
+
 /* ── GÖRGETŐSÁV stílus ─────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
