@@ -876,8 +876,178 @@ body {
   .tempo-props-columns { grid-template-columns: 1fr; }
 }
 
+/* ── TODAY'S GAMES BAR ──────────────────────────────────────────────────── */
+.today-games-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding: 8px 20px; background: var(--surface); border-bottom: 1px solid var(--border);
+  font-size: 0.8rem;
+}
+.tg-label { color: var(--muted); font-weight: 600; white-space: nowrap; }
+.tg-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 10px; border-radius: 20px;
+  background: var(--bg); border: 1px solid var(--border);
+  font-size: 0.78rem; color: var(--text);
+}
+.tg-status { color: var(--muted); font-size: 0.72rem; }
+.b2b-badge {
+  display: inline-block; padding: 1px 5px; border-radius: 4px;
+  background: #7c3aed22; color: #a78bfa;
+  font-size: 0.68rem; font-weight: 700; letter-spacing: 0.02em;
+  border: 1px solid #7c3aed44; vertical-align: middle; margin-left: 3px;
+}
+
+/* ── MATCHUP CHIP & DEF PROFILE ─────────────────────────────────────────── */
+.matchup-chip {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 2px 8px; border-radius: 12px; font-size: 0.72rem; font-weight: 600;
+  white-space: nowrap;
+}
+.match-easy { background: #16a34a22; color: #4ade80; border: 1px solid #16a34a44; }
+.match-mid  { background: #d9770022; color: #fbbf24; border: 1px solid #d9770044; }
+.match-hard { background: #dc262622; color: #f87171; border: 1px solid #dc262644; }
+
+.def-matchup-section { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+.def-profile { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.def-profile-title { font-size: 0.78rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+.def-profile-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+.def-profile-label { font-size: 0.8rem; color: var(--text); }
+.def-sub { color: var(--muted); font-size: 0.72rem; }
+
+/* ── EV KALKULÁTOR ──────────────────────────────────────────────────────── */
+.ev-layout { display: grid; grid-template-columns: 340px 1fr; gap: 20px; padding: 20px; max-width: 1100px; margin: 0 auto; }
+.ev-inputs-card, .ev-result-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px;
+}
+.ev-inputs-card h3, .ev-result-card h3 { font-size: 0.9rem; font-weight: 700; margin-bottom: 16px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.ev-field { margin-bottom: 14px; position: relative; }
+.ev-field label { display: block; font-size: 0.78rem; color: var(--muted); margin-bottom: 4px; }
+.ev-field input, .ev-field select { width: 100%; box-sizing: border-box; }
+.ev-placeholder { display: flex; align-items: center; justify-content: center; height: 160px; color: var(--muted); font-size: 0.9rem; text-align: center; line-height: 1.6; }
+
+.ev-verdict-banner {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 14px 18px; border-radius: 10px; margin-bottom: 16px;
+}
+.ev-verdict-banner.ev-pos { background: #16a34a22; border: 1px solid #16a34a55; }
+.ev-verdict-banner.ev-neg { background: #dc262622; border: 1px solid #dc262655; }
+.ev-verdict-banner.ev-neutral { background: #d9770022; border: 1px solid #d9770055; }
+.ev-verdict-icon { font-size: 1.4rem; }
+.ev-verdict-text { font-size: 1rem; font-weight: 700; }
+.ev-verdict-sub  { font-size: 0.78rem; color: var(--muted); }
+
+.ev-stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.ev-stat-box { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+.ev-stat-label { font-size: 0.72rem; color: var(--muted); margin-bottom: 4px; }
+.ev-stat-value { font-size: 1.15rem; font-weight: 700; }
+.ev-stat-sub   { font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
+.ev-stat-value.pos { color: #4ade80; }
+.ev-stat-value.neg { color: #f87171; }
+
+/* ── KOMBINÁTOR / PARLAY BUILDER ────────────────────────────────────────── */
+.parlay-layout { display: grid; grid-template-columns: 340px 1fr; gap: 20px; padding: 20px; max-width: 1100px; margin: 0 auto; }
+.parlay-add-card, .parlay-result-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px;
+}
+.parlay-add-card h3, .parlay-result-card h3 { font-size: 0.9rem; font-weight: 700; margin-bottom: 16px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.parlay-add-btn {
+  width: 100%; margin-top: 4px; padding: 10px; border-radius: 8px;
+  background: var(--accent); color: #fff; border: none; font-size: 0.9rem;
+  font-weight: 600; cursor: pointer; transition: opacity 0.15s;
+}
+.parlay-add-btn:hover { opacity: 0.85; }
+.parlay-selections { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; min-height: 60px; }
+.parlay-placeholder { color: var(--muted); font-size: 0.85rem; padding: 16px 0; text-align: center; }
+.parlay-sel-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 10px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+}
+.parlay-sel-info { display: flex; flex-direction: column; gap: 2px; }
+.parlay-sel-name { font-weight: 600; font-size: 0.85rem; }
+.parlay-sel-detail { font-size: 0.75rem; color: var(--muted); }
+.parlay-sel-right { display: flex; align-items: center; gap: 8px; }
+.parlay-sel-prob { font-weight: 700; font-size: 0.9rem; }
+.parlay-sel-remove { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 1rem; padding: 0 4px; }
+.parlay-sel-remove:hover { color: #f87171; }
+
+.parlay-combined-block { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px; margin-bottom: 14px; }
+.parlay-combined-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 0.85rem; }
+.parlay-combined-row:last-child { margin-bottom: 0; }
+.parlay-combined-label { color: var(--muted); }
+.parlay-combined-val { font-weight: 700; font-size: 1rem; }
+.parlay-odds-row { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+.parlay-odds-row label { font-size: 0.8rem; color: var(--muted); white-space: nowrap; }
+.parlay-odds-row input { flex: 1; }
+.parlay-ev-result { padding: 12px 16px; border-radius: 10px; }
+
+/* ── PLAYER SEARCH DROPDOWN ─────────────────────────────────────────────── */
+.ev-dropdown {
+  position: absolute; top: calc(100% + 2px); left: 0; right: 0; z-index: 200;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  max-height: 220px; overflow-y: auto; box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+.ev-drop-item {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+  cursor: pointer; font-size: 0.82rem; transition: background 0.1s;
+}
+.ev-drop-item:hover { background: var(--bg); }
+.ev-drop-name { font-weight: 600; }
+
+/* ── EV TOGGLE BUTTONS ──────────────────────────────────────────────────── */
+.ev-toggle-row { display: flex; gap: 8px; }
+.ev-toggle {
+  flex: 1; padding: 8px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--muted); font-size: 0.85rem;
+  font-weight: 600; cursor: pointer; transition: all 0.15s;
+}
+.ev-toggle.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.ev-section-title { font-size: 0.85rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 16px; }
+.ev-odds-hint { font-size: 0.75rem; color: var(--muted); margin-top: 3px; display: block; }
+
+/* ── EV VERDICT BANNERS ─────────────────────────────────────────────────── */
+.ev-verdict-banner {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 18px; border-radius: 10px; margin-bottom: 16px; flex-wrap: wrap;
+}
+.verdict-fire    { background: #dc262622; border: 1px solid #dc262655; }
+.verdict-good    { background: #16a34a22; border: 1px solid #16a34a55; }
+.verdict-warn    { background: #d9770022; border: 1px solid #d9770055; }
+.verdict-skip    { background: #44444422; border: 1px solid #55555555; }
+.ev-verdict-icon { font-size: 1.5rem; }
+.ev-verdict-text { font-size: 1.05rem; font-weight: 800; flex: 1; }
+.ev-verdict-sub  { font-size: 0.78rem; color: var(--muted); width: 100%; }
+
+/* ── EV PROB PREVIEW (no odds yet) ─────────────────────────────────────── */
+.ev-prob-preview { text-align: center; padding: 20px 0; }
+.ev-prob-big { font-size: 2.8rem; font-weight: 800; margin: 8px 0; }
+.ev-prob-big.pos { color: #4ade80; }
+.ev-prob-big.neg { color: #f87171; }
+.ev-prob-hint { font-size: 0.8rem; color: var(--muted); }
+.ev-avgs-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.ev-avgs-label { font-size: 0.75rem; color: var(--muted); }
+.ev-avg-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; font-size: 0.78rem; }
+.ev-avg-win { color: var(--muted); margin-right: 2px; }
+
+/* ── PARLAY SPECIFIC ────────────────────────────────────────────────────── */
+.parlay-count { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 5px; background: var(--accent); color: #fff; border-radius: 10px; font-size: 0.72rem; font-weight: 700; margin-left: 6px; }
+.parlay-empty { color: var(--muted); font-size: 0.85rem; text-align: center; padding: 20px 0; margin: 0; }
+.parlay-remove { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 1rem; padding: 0 4px; line-height: 1; }
+.parlay-remove:hover { color: #f87171; }
+.parlay-summary { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px; }
+.parlay-summary-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 0.85rem; }
+.parlay-summary-row:last-of-type { border-bottom: none; }
+.parlay-odds-input-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.parlay-odds-input-row label { font-size: 0.8rem; color: var(--muted); white-space: nowrap; }
+.parlay-odds-input-row input { flex: 1; }
+
 /* ── GÖRGETŐSÁV stílus ─────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--border-light); }
+
+@media (max-width: 900px) {
+  .ev-layout, .parlay-layout { grid-template-columns: 1fr; }
+  .ev-stats-grid { grid-template-columns: repeat(2, 1fr); }
+  .def-matchup-section { grid-template-columns: 1fr; }
+}

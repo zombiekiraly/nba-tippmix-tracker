@@ -46,7 +46,16 @@
   <button class="tab-btn" data-tab="tempo">
     ⚡ Tempó Elemző
   </button>
+  <button class="tab-btn" data-tab="ev">
+    💰 EV Kalkulátor
+  </button>
+  <button class="tab-btn" data-tab="parlay">
+    🎰 Kombinátor
+  </button>
 </nav>
+
+<!-- Mai meccsek / B2B sáv -->
+<div id="today-games-bar" class="today-games-bar" style="display:none"></div>
 
 <!-- ══════════════════════════════════════════════════════════════════════
      TAB: JÁTÉKOSOK
@@ -329,6 +338,151 @@
 </section>
 
 <!-- ══════════════════════════════════════════════════════════════════════
+     TAB: EV KALKULÁTOR
+══════════════════════════════════════════════════════════════════════ -->
+<section id="tab-ev" class="tab-content">
+
+  <div class="tempo-intro">
+    <strong>Hogyan működik?</strong> Add meg a fogadóiroda vonalát és oddsát.
+    A rendszer összehasonlítja a mi modelünk valószínűségével, és megmutatja van-e
+    <em>pozitív várható érték (+EV)</em> a fogadásban.
+    Képlet: <code>EV = mi_valószínűségünk × odds − 1</code>.
+    Ha EV &gt; 0, matematikailag nyereséges a fogadás hosszú távon.
+  </div>
+
+  <div class="ev-layout">
+    <!-- Bal: paraméterek -->
+    <div class="ev-inputs-card">
+      <h3 class="ev-section-title">Fogadás paraméterei</h3>
+
+      <div class="ev-field">
+        <label>🔍 Játékos</label>
+        <input type="text" id="ev-player-search" placeholder="Játékos neve…" autocomplete="off" />
+        <div id="ev-player-dropdown" class="ev-dropdown" style="display:none"></div>
+      </div>
+
+      <div class="ev-field">
+        <label>📊 Statisztika</label>
+        <select id="ev-stat">
+          <option value="pts">Pontok (PTS)</option>
+          <option value="ast">Asszisztok (AST)</option>
+          <option value="reb">Lepattanók (REB)</option>
+          <option value="fg3m">3 pontosok (3PM)</option>
+          <option value="fg2m">2 pontosok (2PM)</option>
+          <option value="stl">Labdaszerzés (STL)</option>
+          <option value="blk">Blokk (BLK)</option>
+        </select>
+      </div>
+
+      <div class="ev-field">
+        <label>🎯 Vonal</label>
+        <select id="ev-line"></select>
+      </div>
+
+      <div class="ev-field">
+        <label>Irány</label>
+        <div class="ev-toggle-row">
+          <button class="ev-toggle active" id="ev-over-btn" data-dir="over">OVER</button>
+          <button class="ev-toggle" id="ev-under-btn" data-dir="under">UNDER</button>
+        </div>
+      </div>
+
+      <div class="ev-field">
+        <label>💶 Fogadóiroda odds (decimal)</label>
+        <input type="number" id="ev-odds" placeholder="pl. 1.85" min="1.01" step="0.01" />
+        <span class="ev-odds-hint" id="ev-implied-hint"></span>
+      </div>
+    </div>
+
+    <!-- Jobb: eredmény -->
+    <div class="ev-result-card" id="ev-result-card">
+      <div class="ev-placeholder">
+        <span>← Válassz játékost,<br>add meg az oddsot</span>
+      </div>
+    </div>
+  </div>
+
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     TAB: KOMBINÁTOR (PARLAY BUILDER)
+══════════════════════════════════════════════════════════════════════ -->
+<section id="tab-parlay" class="tab-content">
+
+  <div class="tempo-intro">
+    <strong>Kombinátor:</strong> Gyűjtsd össze a kiszemelt fogadásaidat, és a rendszer
+    megmutatja a kombinált valószínűséget és a szükséges minimum oddsot a pozitív várható értékhez.
+    <em>Megjegyzés: a kombinált valószínűség feltételezi egymástól független fogadásokat.</em>
+  </div>
+
+  <div class="parlay-layout">
+    <!-- Bal: fogadás hozzáadása -->
+    <div class="parlay-add-card">
+      <h3 class="ev-section-title">Fogadás hozzáadása</h3>
+
+      <div class="ev-field">
+        <label>🔍 Játékos</label>
+        <input type="text" id="parlay-player-search" placeholder="Játékos neve…" autocomplete="off" />
+        <div id="parlay-player-dropdown" class="ev-dropdown" style="display:none"></div>
+      </div>
+
+      <div class="ev-field">
+        <label>📊 Statisztika</label>
+        <select id="parlay-stat">
+          <option value="pts">Pontok (PTS)</option>
+          <option value="ast">Asszisztok (AST)</option>
+          <option value="reb">Lepattanók (REB)</option>
+          <option value="fg3m">3 pontosok (3PM)</option>
+          <option value="fg2m">2 pontosok (2PM)</option>
+          <option value="stl">Labdaszerzés (STL)</option>
+          <option value="blk">Blokk (BLK)</option>
+        </select>
+      </div>
+
+      <div class="ev-field">
+        <label>🎯 Vonal</label>
+        <select id="parlay-line"></select>
+      </div>
+
+      <div class="ev-field">
+        <label>Irány</label>
+        <div class="ev-toggle-row">
+          <button class="ev-toggle active" id="parlay-over-btn" data-dir="over">OVER</button>
+          <button class="ev-toggle" id="parlay-under-btn" data-dir="under">UNDER</button>
+        </div>
+      </div>
+
+      <button class="parlay-add-btn" id="parlay-add-btn">+ Hozzáadás a kombinációhoz</button>
+    </div>
+
+    <!-- Jobb: kombinált elemzés -->
+    <div class="parlay-result-card">
+      <h3 class="ev-section-title">Kombináció <span id="parlay-count-badge" class="parlay-count">0</span></h3>
+      <div id="parlay-selections" class="parlay-selections">
+        <p class="parlay-empty">Még nincs kiválasztott fogadás. Adj hozzá legalább 2-t!</p>
+      </div>
+
+      <div id="parlay-summary" class="parlay-summary" style="display:none">
+        <div class="parlay-summary-row">
+          <span>Kombinált valószínűség</span>
+          <strong id="parlay-combined-prob">—</strong>
+        </div>
+        <div class="parlay-summary-row">
+          <span>Min. szükséges odds (+EV-hez)</span>
+          <strong id="parlay-min-odds">—</strong>
+        </div>
+        <div class="parlay-odds-input-row">
+          <label>Fogadóiroda parlay odds:</label>
+          <input type="number" id="parlay-actual-odds" placeholder="pl. 4.50" min="1.01" step="0.01" />
+        </div>
+        <div id="parlay-ev-result" class="parlay-ev-result" style="display:none"></div>
+      </div>
+    </div>
+  </div>
+
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════════
      JÁTÉKOS RÉSZLETES MODAL
 ══════════════════════════════════════════════════════════════════════ -->
 <div id="player-modal" class="modal-overlay" style="display:none">
@@ -339,6 +493,12 @@
 
     <!-- Összehasonlítás kártyák -->
     <div class="avg-cards" id="modal-avg-cards"></div>
+
+    <!-- Hazai / Vendég split -->
+    <div id="modal-home-away-section" style="display:none">
+      <h3 class="section-title">Hazai / Vendég split</h3>
+      <div class="avg-cards" id="modal-home-away"></div>
+    </div>
 
     <!-- Legutóbbi meccsek -->
     <h3 class="section-title">Legutóbbi meccsek</h3>
@@ -551,6 +711,7 @@ const firebaseConfig = {
           <td class="col-rank">${i + 1}</td>
           <td class="col-name">
             <button class="player-link" data-pid="${p.player_id}">${p.player_name}</button>
+            ${b2bBadge(p.team_id)}
           </td>
           <td class="col-team">
             <span class="team-badge">${p.team_abbreviation}</span>
@@ -874,14 +1035,22 @@ const firebaseConfig = {
         ${teamCard(tB, bAdj, tierMap[tB.team_id])}
       </div>`;
 
-    renderTempoPlayerProps(tA, tB, aAdj.factor, bAdj.factor);
+    const rankMap = buildDefRankings();
+    const defSection = `
+      <div class="def-matchup-section">
+        ${defProfileHtml(tB, rankMap, tB.team_abbreviation)}
+        ${defProfileHtml(tA, rankMap, tA.team_abbreviation)}
+      </div>`;
+    card.innerHTML += defSection;
+
+    renderTempoPlayerProps(tA, tB, aAdj.factor, bAdj.factor, rankMap);
   }
 
-  function renderTempoPlayerProps(tA, tB, aFactor, bFactor) {
+  function renderTempoPlayerProps(tA, tB, aFactor, bFactor, rankMap) {
     const section = document.getElementById('tempo-player-props');
     const grid    = document.getElementById('tempo-players-grid');
 
-    const topPlayers = (abbr, factor) =>
+    const topPlayers = (abbr, factor, oppTeam) =>
       allPlayers
         .filter(p => p.team_abbreviation === abbr && p.games_played >= 10)
         .sort((a, b) => (b.season_avg?.pts ?? 0) - (a.season_avg?.pts ?? 0))
@@ -889,17 +1058,18 @@ const firebaseConfig = {
         .map(p => {
           const s = p.season_avg ?? {};
           return {
-            pid: p.player_id, name: p.player_name,
+            pid: p.player_id, name: p.player_name, _raw: p,
             pts: s.pts ?? 0, ast: s.ast ?? 0, reb: s.reb ?? 0, fg3m: s.fg3m ?? 0,
             expPts: (s.pts ?? 0) * factor,
             expAst: (s.ast ?? 0) * factor,
             expReb: (s.reb ?? 0) * factor,
             pctChg: (factor - 1) * 100,
+            matchupChip: rankMap ? playerMatchupChip(p, oppTeam, rankMap) : '',
           };
         });
 
-    const playersA = topPlayers(tA.team_abbreviation, aFactor);
-    const playersB = topPlayers(tB.team_abbreviation, bFactor);
+    const playersA = topPlayers(tA.team_abbreviation, aFactor, tB);
+    const playersB = topPlayers(tB.team_abbreviation, bFactor, tA);
     if (!playersA.length && !playersB.length) { section.style.display = 'none'; return; }
 
     const playerTable = (players, teamName, pct) => {
@@ -922,6 +1092,7 @@ const firebaseConfig = {
                 <th class="col-stat">REB avg</th>
                 <th class="col-stat">REB várható</th>
                 <th class="col-stat">3PM avg</th>
+                <th class="col-stat">Matchup</th>
               </tr></thead>
               <tbody>
                 ${players.map(p => `
@@ -936,6 +1107,7 @@ const firebaseConfig = {
                     <td class="col-stat muted">${fmt(p.reb)}</td>
                     <td class="col-stat">${fmt(p.expReb)}</td>
                     <td class="col-stat">${fmt(p.fg3m)}</td>
+                    <td class="col-stat">${p.matchupChip || '—'}</td>
                   </tr>`).join('')}
               </tbody>
             </table>
@@ -1044,6 +1216,39 @@ const firebaseConfig = {
           </div>`;
       }).join("");
 
+    // Home/Away splits
+    const haSection = document.getElementById('modal-home-away-section');
+    const haCards   = document.getElementById('modal-home-away');
+    const homeAvg   = p.home_avg;
+    const roadAvg   = p.road_avg;
+    if (homeAvg || roadAvg) {
+      haSection.style.display = 'block';
+      const splitKeys = [
+        { k: 'pts', label: 'PTS' }, { k: 'ast', label: 'AST' },
+        { k: 'reb', label: 'REB' }, { k: 'fg3m', label: '3PM' }, { k: 'tov', label: 'TOV' },
+      ];
+      haCards.innerHTML = `
+        <div class="avg-card-header">
+          <span></span><span>Szezon</span><span>Hazai</span><span>Idegenbeli</span>
+        </div>
+        ${splitKeys.map(({ k, label }) => {
+          const sv = p.season_avg?.[k] ?? 0;
+          const hv = homeAvg?.[k] ?? null;
+          const rv = roadAvg?.[k] ?? null;
+          const clsH = hv !== null ? (hv > sv * 1.1 ? 'better' : hv < sv * 0.9 ? 'worse' : '') : '';
+          const clsR = rv !== null ? (rv > sv * 1.1 ? 'better' : rv < sv * 0.9 ? 'worse' : '') : '';
+          return `
+            <div class="avg-card-row">
+              <span class="avg-label">${label}</span>
+              <span class="avg-val">${fmt(sv)}</span>
+              <span class="avg-val ${clsH}">${hv !== null ? fmt(hv) : '—'}</span>
+              <span class="avg-val ${clsR}">${rv !== null ? fmt(rv) : '—'}</span>
+            </div>`;
+        }).join('')}`;
+    } else {
+      haSection.style.display = 'none';
+    }
+
     document.getElementById("player-modal").style.display = "flex";
     document.body.style.overflow = "hidden";
   }
@@ -1068,6 +1273,353 @@ const firebaseConfig = {
   }
 
   // ════════════════════════════════════════════════════════════════════════
+  // SCHEDULE / B2B / TODAY'S GAMES
+  // ════════════════════════════════════════════════════════════════════════
+
+  let schedule   = null;
+  let b2bTeamIds = [];
+
+  async function loadSchedule() {
+    try {
+      const snap = await getDoc(doc(db, "schedule", "today"));
+      if (snap.exists()) {
+        schedule   = snap.data();
+        b2bTeamIds = schedule.b2b_team_ids || [];
+        if (allTeams.length)  renderTodayGamesBar();
+        if (allPlayers.length) renderPlayers();
+      }
+    } catch (_) { /* non-kritikus */ }
+  }
+
+  function renderTodayGamesBar() {
+    const bar = document.getElementById('today-games-bar');
+    if (!bar || !schedule?.games?.length) return;
+    const chips = schedule.games.map(g => {
+      const hT = allTeams.find(t => t.team_id === g.home_team_id);
+      const aT = allTeams.find(t => t.team_id === g.away_team_id);
+      const ha = hT?.team_abbreviation ?? '?';
+      const aa = aT?.team_abbreviation ?? '?';
+      const hb = g.b2b_home ? '<span class="b2b-badge">B2B</span>' : '';
+      const ab = g.b2b_away ? '<span class="b2b-badge">B2B</span>' : '';
+      return `<span class="tg-chip">${ab}${aa} @ ${ha}${hb} <span class="tg-status">${g.status}</span></span>`;
+    }).join('');
+    bar.innerHTML = `<span class="tg-label">📅 Mai meccsek:</span>${chips}`;
+    bar.style.display = 'flex';
+  }
+
+  const b2bBadge = (teamId) =>
+    b2bTeamIds.includes(String(teamId))
+      ? '<span class="b2b-badge" title="Back-to-Back — tegnap is játszott">B2B</span>'
+      : '';
+
+  // ════════════════════════════════════════════════════════════════════════
+  // DEFENZÍV MATCHUP RANKINGS
+  // ════════════════════════════════════════════════════════════════════════
+
+  function buildDefRankings() {
+    const byPerim = [...allTeams].sort((a, b) => (b.opp_fg3_pct ?? 0) - (a.opp_fg3_pct ?? 0));
+    const byInt   = [...allTeams].sort((a, b) => (b.def_rating   ?? 0) - (a.def_rating   ?? 0));
+    const map = {};
+    allTeams.forEach(t => {
+      map[t.team_id] = {
+        perimRank:    byPerim.findIndex(x => x.team_id === t.team_id) + 1,
+        interiorRank: byInt.findIndex(x   => x.team_id === t.team_id) + 1,
+        opp_fg3_pct:  t.opp_fg3_pct ?? 0,
+        def_rating:   t.def_rating  ?? 0,
+      };
+    });
+    return map;
+  }
+
+  function estimatePos(player) {
+    const s = player.season_avg ?? {};
+    if ((s.blk ?? 0) > 0.7 || (s.reb ?? 0) > 6.5) return 'big';
+    if ((s.fg3m ?? 0) > 1.2 || (s.ast ?? 0) > 3.5) return 'guard';
+    return 'wing';
+  }
+
+  function matchupVerdictFor(rank) {
+    if (rank <= 10) return { cls: 'match-easy', icon: '🟢', label: 'FAVORIT' };
+    if (rank <= 20) return { cls: 'match-mid',  icon: '🟡', label: 'ÁTLAG'   };
+    return               { cls: 'match-hard', icon: '🔴', label: 'NEHÉZ'   };
+  }
+
+  function playerMatchupChip(player, opponentTeam, rankMap) {
+    if (!opponentTeam || !rankMap) return '';
+    const pos  = estimatePos(player);
+    const rMap = rankMap[opponentTeam.team_id];
+    if (!rMap) return '';
+    const rank = pos === 'big' ? rMap.interiorRank : rMap.perimRank;
+    const v    = matchupVerdictFor(rank);
+    const posLabel = pos === 'big' ? 'belső' : pos === 'guard' ? 'perimeter' : 'wing';
+    return `<span class="matchup-chip ${v.cls}" title="${posLabel} védelem ellen, #${rank} rang">${v.icon} ${v.label}</span>`;
+  }
+
+  function defProfileHtml(team, rankMap, label) {
+    if (!team || !rankMap) return '';
+    const r = rankMap[team.team_id];
+    if (!r) return '';
+    const pv = matchupVerdictFor(r.perimRank);
+    const iv = matchupVerdictFor(r.interiorRank);
+    return `
+      <div class="def-profile">
+        <div class="def-profile-title">${label} defenzív profil</div>
+        <div class="def-profile-row">
+          <span class="def-profile-label">Perimeter véd. <span class="def-sub">(3P% engedett: ${fmt(r.opp_fg3_pct)}%)</span></span>
+          <span class="matchup-chip ${pv.cls}">${pv.icon} #${r.perimRank} ${pv.label} guard/wing ellen</span>
+        </div>
+        <div class="def-profile-row">
+          <span class="def-profile-label">Belső véd. <span class="def-sub">(DefRtg: ${fmt(r.def_rating)})</span></span>
+          <span class="matchup-chip ${iv.cls}">${iv.icon} #${r.interiorRank} ${iv.label} big ellen</span>
+        </div>
+      </div>`;
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // JÁTÉKOS KERESÉS HELPER (EV + PARLAY)
+  // ════════════════════════════════════════════════════════════════════════
+
+  function setupPlayerSearch(inputId, dropdownId, onSelect) {
+    const input = document.getElementById(inputId);
+    const drop  = document.getElementById(dropdownId);
+    if (!input || !drop) return;
+    input.addEventListener('input', () => {
+      const q = input.value.toLowerCase().trim();
+      if (q.length < 2) { drop.style.display = 'none'; return; }
+      const matches = allPlayers.filter(p => p.player_name.toLowerCase().includes(q)).slice(0, 8);
+      if (!matches.length) { drop.style.display = 'none'; return; }
+      drop.innerHTML = matches.map(p => `
+        <div class="ev-drop-item" data-pid="${p.player_id}">
+          <span class="ev-drop-name">${p.player_name}</span>
+          <span class="team-badge">${p.team_abbreviation}</span>
+          ${b2bBadge(p.team_id)}
+        </div>`).join('');
+      drop.style.display = 'block';
+      drop.querySelectorAll('.ev-drop-item').forEach(el => {
+        el.addEventListener('click', () => {
+          const p = allPlayers.find(x => x.player_id === el.dataset.pid);
+          if (p) { input.value = p.player_name; drop.style.display = 'none'; onSelect(p); }
+        });
+      });
+    });
+    document.addEventListener('click', e => {
+      if (!input.contains(e.target) && !drop.contains(e.target)) drop.style.display = 'none';
+    });
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // EV KALKULÁTOR
+  // ════════════════════════════════════════════════════════════════════════
+
+  let evPlayerSel = null;
+  let evDir       = 'over';
+
+  function evPopulateLines() {
+    const stat = document.getElementById('ev-stat')?.value;
+    const sel  = document.getElementById('ev-line');
+    if (!sel || !stat) return;
+    sel.innerHTML = (OU_THRESHOLDS[stat] ?? []).map(l => `<option value="${l}">${l}</option>`).join('');
+    renderEvResult();
+  }
+
+  function renderEvResult() {
+    const card = document.getElementById('ev-result-card');
+    if (!card) return;
+    if (!evPlayerSel) {
+      card.innerHTML = '<div class="ev-placeholder"><span>← Válassz játékost,<br>add meg az oddsot</span></div>';
+      return;
+    }
+    const stat = document.getElementById('ev-stat')?.value;
+    const line = parseFloat(document.getElementById('ev-line')?.value);
+    const odds = parseFloat(document.getElementById('ev-odds')?.value);
+    const form = evPlayerSel.ou_form?.[stat]?.[String(line)];
+    const hint = document.getElementById('ev-implied-hint');
+
+    if (!form || form.windows < 2) {
+      card.innerHTML = '<div class="ev-placeholder"><span>Nincs elegendő adat ehhez a vonalhoz.</span></div>';
+      return;
+    }
+
+    const ourProb = evDir === 'over' ? form.pct / 100 : 1 - form.pct / 100;
+    const ourPct  = Math.round(ourProb * 100);
+
+    if (!odds || odds < 1.01) {
+      if (hint) hint.textContent = '';
+      const avgMap = { season: 'Szezon', l20: 'L20', l10: 'L10', l5: 'L5' };
+      const avgsHtml = Object.entries(form.avgs ?? {}).map(([w, v]) =>
+        `<span class="ev-avg-chip"><span class="ev-avg-win">${avgMap[w] ?? w}</span>${fmt(v)}</span>`).join('');
+      card.innerHTML = `
+        <div class="ev-prob-preview">
+          <div class="ev-stat-label" style="margin-bottom:6px">${evPlayerSel.player_name} — ${stat.toUpperCase()} ${evDir === 'over' ? '>' : '<'} ${line}</div>
+          <div class="ev-prob-big ${ourPct >= 60 ? 'pos' : ourPct <= 40 ? 'neg' : ''}">${ourPct}%</div>
+          <div class="ev-prob-hint">modell valószínűség · Add meg az oddsot →</div>
+          <div class="ev-avgs-row" style="margin-top:12px"><span class="ev-avgs-label">Átlagok:</span>${avgsHtml}</div>
+        </div>`;
+      return;
+    }
+
+    const bookieImplied = 1 / odds;
+    const edge = ourProb - bookieImplied;
+    const ev   = ourProb * odds - 1;
+    const kelly = Math.max(0, edge / (odds - 1));
+    if (hint) hint.textContent = `Implied: ${fmt(bookieImplied * 100)}%`;
+
+    const verdict =
+      ev > 0.07 ? { icon: '🔥', text: 'FOGADJ',     cls: 'verdict-fire' }
+    : ev > 0.03 ? { icon: '✅', text: 'AJÁNLOTT',   cls: 'verdict-good' }
+    : ev > 0    ? { icon: '⚠️', text: 'MARGINÁLIS', cls: 'verdict-warn' }
+    :             { icon: '❌', text: 'NE FOGADJ',   cls: 'verdict-skip' };
+
+    const avgMap = { season: 'Szezon', l20: 'L20', l10: 'L10', l5: 'L5' };
+    const avgsHtml = Object.entries(form.avgs ?? {}).map(([w, v]) =>
+      `<span class="ev-avg-chip"><span class="ev-avg-win">${avgMap[w] ?? w}</span>${fmt(v)}</span>`).join('');
+
+    card.innerHTML = `
+      <div class="ev-verdict-banner ${verdict.cls}">
+        <span class="ev-verdict-icon">${verdict.icon}</span>
+        <span class="ev-verdict-text">${verdict.text}</span>
+        <span class="ev-verdict-sub">${evPlayerSel.player_name} — ${stat.toUpperCase()} ${evDir === 'over' ? '>' : '<'} ${line}</span>
+      </div>
+      <div class="ev-stats-grid">
+        <div class="ev-stat-box">
+          <div class="ev-stat-label">Modell valószínűség</div>
+          <div class="ev-stat-value ${ourPct >= 55 ? 'pos' : ourPct <= 45 ? 'neg' : ''}">${ourPct}%</div>
+          <div class="ev-stat-sub">${evDir === 'over' ? 'OVER' : 'UNDER'} ${line}</div>
+        </div>
+        <div class="ev-stat-box">
+          <div class="ev-stat-label">Iroda implied</div>
+          <div class="ev-stat-value">${fmt(bookieImplied * 100)}%</div>
+          <div class="ev-stat-sub">odds: ${fmt(odds, 2)}</div>
+        </div>
+        <div class="ev-stat-box">
+          <div class="ev-stat-label">Edge</div>
+          <div class="ev-stat-value ${edge >= 0 ? 'pos' : 'neg'}">${edge >= 0 ? '+' : ''}${fmt(edge * 100)}%</div>
+          <div class="ev-stat-sub">mi − iroda</div>
+        </div>
+        <div class="ev-stat-box">
+          <div class="ev-stat-label">EV / €100</div>
+          <div class="ev-stat-value ${ev >= 0 ? 'pos' : 'neg'}">${ev >= 0 ? '+' : ''}€${fmt(ev * 100)}</div>
+          <div class="ev-stat-sub">várható nyereség</div>
+        </div>
+        <div class="ev-stat-box">
+          <div class="ev-stat-label">Kelly fraction</div>
+          <div class="ev-stat-value">${fmt(kelly * 100)}%</div>
+          <div class="ev-stat-sub">bankrollból</div>
+        </div>
+        <div class="ev-stat-box">
+          <div class="ev-stat-label">Ablakok</div>
+          <div class="ev-stat-value">${form.over_count}/${form.windows}</div>
+          <div class="ev-stat-sub">over / össz</div>
+        </div>
+      </div>
+      <div class="ev-avgs-row"><span class="ev-avgs-label">Átlagok:</span>${avgsHtml}</div>`;
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // KOMBINÁTOR (PARLAY BUILDER)
+  // ════════════════════════════════════════════════════════════════════════
+
+  let parlayList   = [];
+  let parlayDir    = 'over';
+  let parlayPlayer = null;
+
+  function parlayPopulateLines() {
+    const stat = document.getElementById('parlay-stat')?.value;
+    const sel  = document.getElementById('parlay-line');
+    if (!sel || !stat) return;
+    sel.innerHTML = (OU_THRESHOLDS[stat] ?? []).map(l => `<option value="${l}">${l}</option>`).join('');
+  }
+
+  function addToParlay() {
+    if (!parlayPlayer) return;
+    const stat = document.getElementById('parlay-stat')?.value;
+    const line = parseFloat(document.getElementById('parlay-line')?.value);
+    const form = parlayPlayer.ou_form?.[stat]?.[String(line)];
+    if (!form || form.windows < 2) return;
+    const prob = parlayDir === 'over' ? form.pct / 100 : 1 - form.pct / 100;
+    parlayList.push({
+      id: Date.now(), playerName: parlayPlayer.player_name,
+      team: parlayPlayer.team_abbreviation, teamId: parlayPlayer.team_id,
+      stat, line, dir: parlayDir, prob,
+      pct: Math.round(prob * 100), overPct: form.pct,
+    });
+    renderParlaySelections();
+  }
+
+  function renderParlaySelections() {
+    const el      = document.getElementById('parlay-selections');
+    const summary = document.getElementById('parlay-summary');
+    const badge   = document.getElementById('parlay-count-badge');
+    if (!el) return;
+    badge.textContent = parlayList.length;
+
+    if (!parlayList.length) {
+      el.innerHTML = '<p class="parlay-empty">Még nincs kiválasztott fogadás. Adj hozzá legalább 2-t!</p>';
+      if (summary) summary.style.display = 'none';
+      return;
+    }
+
+    el.innerHTML = parlayList.map(s => `
+      <div class="parlay-sel-row">
+        <div class="parlay-sel-info">
+          <span class="parlay-sel-name">${s.playerName}</span>
+          <span class="team-badge">${s.team}</span>
+          ${b2bBadge(s.teamId)}
+          <span class="parlay-sel-detail">${s.stat.toUpperCase()} ${s.dir === 'over' ? '>' : '<'} ${s.line}</span>
+        </div>
+        <div class="parlay-sel-right">
+          <span class="parlay-sel-prob ${s.pct >= 60 ? 'stat-positive' : s.pct <= 40 ? 'stat-negative' : ''}">${s.pct}%</span>
+          <button class="parlay-remove" data-id="${s.id}">✕</button>
+        </div>
+      </div>`).join('');
+
+    el.querySelectorAll('.parlay-remove').forEach(btn => {
+      btn.addEventListener('click', () => {
+        parlayList = parlayList.filter(s => s.id !== parseInt(btn.dataset.id));
+        renderParlaySelections();
+      });
+    });
+
+    if (parlayList.length >= 2) {
+      const combined = parlayList.reduce((p, s) => p * s.prob, 1);
+      document.getElementById('parlay-combined-prob').textContent = `${fmt(combined * 100)}%`;
+      document.getElementById('parlay-min-odds').textContent      = fmt(1 / combined, 2);
+      if (summary) summary.style.display = 'block';
+      renderParlayEV();
+    } else {
+      if (summary) summary.style.display = 'none';
+    }
+  }
+
+  function renderParlayEV() {
+    const combined   = parlayList.reduce((p, s) => p * s.prob, 1);
+    const actualOdds = parseFloat(document.getElementById('parlay-actual-odds')?.value);
+    const resultEl   = document.getElementById('parlay-ev-result');
+    if (!resultEl) return;
+    if (!actualOdds || actualOdds < 1.01) { resultEl.style.display = 'none'; return; }
+
+    const ev    = combined * actualOdds - 1;
+    const edge  = combined - 1 / actualOdds;
+    const kelly = Math.max(0, edge / (actualOdds - 1));
+    const verdict =
+      ev > 0.07 ? { icon: '🔥', text: 'FOGADJ',     cls: 'verdict-fire' }
+    : ev > 0.03 ? { icon: '✅', text: 'AJÁNLOTT',   cls: 'verdict-good' }
+    : ev > 0    ? { icon: '⚠️', text: 'MARGINÁLIS', cls: 'verdict-warn' }
+    :             { icon: '❌', text: 'NE FOGADJ',   cls: 'verdict-skip' };
+
+    resultEl.style.display = 'block';
+    resultEl.innerHTML = `
+      <div class="ev-verdict-banner ${verdict.cls}" style="margin-bottom:10px">
+        ${verdict.icon} <strong>${verdict.text}</strong>
+      </div>
+      <div class="parlay-ev-grid">
+        <span>EV / €100</span><strong class="${ev >= 0 ? 'stat-positive' : 'stat-negative'}">${ev >= 0 ? '+' : ''}€${fmt(ev * 100)}</strong>
+        <span>Edge</span><strong class="${edge >= 0 ? 'stat-positive' : 'stat-negative'}">${edge >= 0 ? '+' : ''}${fmt(edge * 100)}%</strong>
+        <span>Kelly</span><strong>${fmt(kelly * 100)}%</strong>
+      </div>`;
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
   // EVENT LISTENREK
   // ════════════════════════════════════════════════════════════════════════
 
@@ -1083,6 +1635,19 @@ const firebaseConfig = {
       if (btn.dataset.tab === "tempo") {
         if (allTeams.length === 0) loadTeams().then(() => renderTempoTab());
         else renderTempoTab();
+      }
+      if (btn.dataset.tab === "ev") {
+        setupPlayerSearch('ev-player-search', 'ev-player-dropdown', p => {
+          evPlayerSel = p;
+          evPopulateLines();
+          renderEvResult();
+        });
+      }
+      if (btn.dataset.tab === "parlay") {
+        setupPlayerSearch('parlay-player-search', 'parlay-player-dropdown', p => {
+          parlayPlayer = p;
+          parlayPopulateLines();
+        });
       }
     });
   });
@@ -1135,6 +1700,38 @@ const firebaseConfig = {
   document.getElementById("tempo-team-a")?.addEventListener("change", renderMatchupAnalysis);
   document.getElementById("tempo-team-b")?.addEventListener("change", renderMatchupAnalysis);
 
+  // EV Kalkulátor
+  document.getElementById('ev-stat')?.addEventListener('change', () => { evPopulateLines(); renderEvResult(); });
+  document.getElementById('ev-line')?.addEventListener('change', renderEvResult);
+  document.getElementById('ev-odds')?.addEventListener('input', renderEvResult);
+  document.getElementById('ev-over-btn')?.addEventListener('click', () => {
+    evDir = 'over';
+    document.getElementById('ev-over-btn').classList.add('active');
+    document.getElementById('ev-under-btn').classList.remove('active');
+    renderEvResult();
+  });
+  document.getElementById('ev-under-btn')?.addEventListener('click', () => {
+    evDir = 'under';
+    document.getElementById('ev-under-btn').classList.add('active');
+    document.getElementById('ev-over-btn').classList.remove('active');
+    renderEvResult();
+  });
+
+  // Kombinátor / Parlay Builder
+  document.getElementById('parlay-stat')?.addEventListener('change', parlayPopulateLines);
+  document.getElementById('parlay-over-btn')?.addEventListener('click', () => {
+    parlayDir = 'over';
+    document.getElementById('parlay-over-btn').classList.add('active');
+    document.getElementById('parlay-under-btn').classList.remove('active');
+  });
+  document.getElementById('parlay-under-btn')?.addEventListener('click', () => {
+    parlayDir = 'under';
+    document.getElementById('parlay-under-btn').classList.add('active');
+    document.getElementById('parlay-over-btn').classList.remove('active');
+  });
+  document.getElementById('parlay-add-btn')?.addEventListener('click', addToParlay);
+  document.getElementById('parlay-actual-odds')?.addEventListener('input', renderParlayEV);
+
   // Modal bezárás
   document.getElementById("modal-close")?.addEventListener("click", closeModal);
   document.getElementById("player-modal")?.addEventListener("click", e => {
@@ -1151,6 +1748,7 @@ const firebaseConfig = {
     populateOuLineSelect();
     await loadPlayers();
     renderOuTable();
+    loadSchedule();
   })();
 
 </script>

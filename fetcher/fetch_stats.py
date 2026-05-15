@@ -208,7 +208,7 @@ def nba_api_call(endpoint, description, params, timeout=60):
 
 # ── Alap paraméter-sablon (minden üres mezőt ki kell tölteni) ─────────────
 
-def _player_params(last_n=0, measure="Base"):
+def _player_params(last_n=0, measure="Base", location=""):
     return {
         "College":        "",
         "Conference":     "",
@@ -224,7 +224,7 @@ def _player_params(last_n=0, measure="Base"):
         "ISTRound":       "",
         "LastNGames":     last_n,
         "LeagueID":       "00",
-        "Location":       "",
+        "Location":       location,
         "MeasureType":    measure,
         "Month":          0,
         "OpponentTeamID": 0,
@@ -364,7 +364,26 @@ def fetch_last_n_averages(n):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 3. FORMA-ALAPÚ O/U TRENDEK
+# 3. HAZAI / VENDÉG ÁTLAGOK
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def fetch_location_averages(location):
+    """Hazai (Home) vagy vendég (Road) PerGame átlagok. {player_id: {...}}"""
+    raw  = nba_api_call(
+        "leaguedashplayerstats",
+        "%s atlagok" % location,
+        _player_params(location=location),
+    )
+    rows = parse_result_set(raw)
+    result = {}
+    for r in rows:
+        result[str(r["PLAYER_ID"])] = extract_avg(r)
+    log.info("   OK: %d jatekos %s atlaga betoltve", len(result), location)
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 4. FORMA-ALAPÚ O/U TRENDEK
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def compute_ou_form(season_avg, l5_avg, l10_avg, l20_avg):
@@ -411,7 +430,7 @@ def compute_ou_form(season_avg, l5_avg, l10_avg, l20_avg):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 4. CSAPATSTATISZTIKÁK
+# 5. CSAPATSTATISZTIKÁK
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def fetch_team_stats():
@@ -443,6 +462,11 @@ def fetch_team_stats():
             "pts_per_game":       pts_for,
             "opp_pts_per_game":   opp_pts,
             "total_pts_per_game": safe_float(pts_for + opp_pts),
+            "opp_fg_pct":         safe_float((o.get("OPP_FG_PCT",  0) or 0) * 100),
+            "opp_fg3_pct":        safe_float((o.get("OPP_FG3_PCT", 0) or 0) * 100),
+            "opp_ast":            safe_float(o.get("OPP_AST", 0)),
+            "opp_reb":            safe_float(o.get("OPP_REB", 0)),
+            "opp_tov":            safe_float(o.get("OPP_TOV", 0)),
             "pace":               safe_float(a.get("PACE",       0)),
             "off_rating":         safe_float(a.get("OFF_RATING", 0)),
             "def_rating":         safe_float(a.get("DEF_RATING", 0)),
@@ -465,7 +489,78 @@ def fetch_team_stats():
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 5. FIREBASE FELTÖLTÉS
+# 6. MAI MECCSEK + B2B AZONOSÍTÁS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def fetch_schedule_b2b():
+    """
+    Mai meccsek lekérése és B2B csapatok azonosítása.
+    Ha egy csapat tegnap is játszott, ma B2B-n van.
+    """
+    from datetime import timedelta
+
+    today     = datetime.now()
+    yesterday = today - timedelta(days=1)
+
+    def get_games(date_obj, label):
+        date_str = date_obj.strftime("%m/%d/%Y")
+        try:
+            raw = nba_api_call(
+                "scoreboardv2",
+                "%s meccsek (%s)" % (label, date_str),
+                {"DayOffset": 0, "GameDate": date_str, "LeagueID": "00"},
+                timeout=30,
+            )
+            rs = raw.get("resultSets", [])
+            game_header = next(
+                (x for x in rs if x.get("name") == "GameHeader"), None
+            )
+            if not game_header or not game_header.get("rowSet"):
+                return []
+            return [dict(zip(game_header["headers"], row))
+                    for row in game_header["rowSet"]]
+        except Exception as exc:
+            log.warning("   Schedule fetch sikertelen (%s): %s", label, str(exc)[:80])
+            return []
+
+    yesterday_games = get_games(yesterday, "tegnapi")
+    today_games     = get_games(today,     "mai")
+
+    b2b_ids = set()
+    for g in yesterday_games:
+        b2b_ids.add(str(g.get("HOME_TEAM_ID",    "")))
+        b2b_ids.add(str(g.get("VISITOR_TEAM_ID", "")))
+    b2b_ids.discard("")
+
+    games        = []
+    b2b_team_ids = []
+    for g in today_games:
+        home_id = str(g.get("HOME_TEAM_ID",    ""))
+        away_id = str(g.get("VISITOR_TEAM_ID", ""))
+        home_b2b = home_id in b2b_ids
+        away_b2b = away_id in b2b_ids
+        if home_b2b: b2b_team_ids.append(home_id)
+        if away_b2b: b2b_team_ids.append(away_id)
+        games.append({
+            "game_id":      g.get("GAME_ID", ""),
+            "home_team_id": home_id,
+            "away_team_id": away_id,
+            "status":       g.get("GAME_STATUS_TEXT", "").strip(),
+            "b2b_home":     home_b2b,
+            "b2b_away":     away_b2b,
+        })
+
+    log.info("   OK: %d mai meccs, %d B2B csapat", len(games), len(set(b2b_team_ids)))
+    return {
+        "date":         today.strftime("%Y-%m-%d"),
+        "games":        games,
+        "b2b_team_ids": list(set(b2b_team_ids)),
+        "updated_at":   datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 7. FIREBASE FELTÖLTÉS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def commit_batch_with_retry(batch, label="batch"):
@@ -482,7 +577,8 @@ def commit_batch_with_retry(batch, label="batch"):
             time.sleep(wait)
 
 
-def upload_player_averages(season_data, last5_data, last10_data, last20_data):
+def upload_player_averages(season_data, last5_data, last10_data, last20_data,
+                           home_data=None, road_data=None):
     log.info("Jatekos adatok feltoltese Firebase-be...")
     db_ref  = db.collection("player_averages")
     batch   = db.batch()
@@ -509,6 +605,8 @@ def upload_player_averages(season_data, last5_data, last10_data, last20_data):
             "last5_avg":         l5_avg,
             "last10_avg":        l10_avg,
             "last20_avg":        l20_avg,
+            "home_avg":          (home_data or {}).get(pid, {}),
+            "road_avg":          (road_data or {}).get(pid, {}),
             "ou_form":           compute_ou_form(
                                      s["season_avg"], l5_avg, l10_avg, l20_avg
                                  ),
@@ -536,6 +634,12 @@ def upload_team_stats(team_list):
         batch.set(db.collection("team_stats").document(team["team_id"]), team)
     commit_batch_with_retry(batch, label="team_stats")
     log.info("   OK: %d csapat feltoltve", len(team_list))
+
+
+def upload_schedule(data):
+    db.collection("schedule").document("today").set(data)
+    log.info("   OK: %d mai meccs, B2B csapatok: %s",
+             len(data["games"]), data["b2b_team_ids"] or "nincs")
 
 
 def upload_meta():
@@ -577,11 +681,16 @@ def main():
     last5_data  = fetch_last_n_averages(5)
     last10_data = fetch_last_n_averages(10)
     last20_data = fetch_last_n_averages(20)
+    home_data   = fetch_location_averages("Home")
+    road_data   = fetch_location_averages("Road")
     team_list   = fetch_team_stats()
+    schedule    = fetch_schedule_b2b()
 
     log.info("=== FIREBASE FELTOLTES ===")
-    upload_player_averages(season_data, last5_data, last10_data, last20_data)
+    upload_player_averages(season_data, last5_data, last10_data, last20_data,
+                           home_data, road_data)
     upload_team_stats(team_list)
+    upload_schedule(schedule)
     upload_meta()
 
     elapsed = round(time.time() - start, 1)
