@@ -349,30 +349,8 @@ def fetch_season_averages():
 # 2. UTOLSÓ N MECCS ÁTLAGAI
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def fetch_all_game_logs():
-    """
-    Liga-szintű meccsnapló EGYETLEN API hívással (az összes játékos, az egész szezon).
-    Visszaad: { player_id: [game_dict, ...] } — DATE DESC sorrendben.
-    Ebből számítjuk a L5/L10/L20 átlagokat, recent_games-t és ou_form-ot.
-    """
-    raw = nba_api_call(
-        "leaguegamelog",
-        "Liga-szintu meccsnaplo (teljes szezon)",
-        {
-            "Counter":      0,
-            "DateFrom":     "",
-            "DateTo":       "",
-            "Direction":    "DESC",
-            "LeagueID":     "00",
-            "PlayerOrTeam": "P",
-            "Season":       SEASON,
-            "SeasonType":   "Regular Season",
-            "Sorter":       "DATE",
-        },
-        timeout=120,
-    )
-    rows = parse_result_set(raw)
-
+def _parse_game_log_rows(rows):
+    """Nyers leaguegamelog sorokat alakít game dict-ekké."""
     result = {}
     for r in rows:
         pid = str(r.get("PLAYER_ID", ""))
@@ -403,8 +381,63 @@ def fetch_all_game_logs():
             "tov":        safe_float(r.get("TOV",  0)),
             "plus_minus": safe_int(r.get("PLUS_MINUS", 0)),
         })
+    return result
 
-    log.info("   OK: %d jatekos meccs-naploja betoltve, ossz %d rekord", len(result), len(rows))
+
+def fetch_all_game_logs():
+    """
+    Alapszakasz + Rájátszás meccsnapló (két API hívás), összefésülve DATE DESC.
+    Visszaad: { player_id: [game_dict, ...] } — a legfrissebb meccsek elöl.
+    A rájátszás (május) meccsek is benne vannak, így az L5/L10 átlag valós.
+    """
+    gamelog_params = {
+        "Counter":      0,
+        "DateFrom":     "",
+        "DateTo":       "",
+        "Direction":    "DESC",
+        "LeagueID":     "00",
+        "PlayerOrTeam": "P",
+        "Season":       SEASON,
+        "Sorter":       "DATE",
+    }
+
+    # 1. Alapszakasz
+    raw_rs = nba_api_call(
+        "leaguegamelog",
+        "Meccsnaplo - Alapszakasz",
+        {**gamelog_params, "SeasonType": "Regular Season"},
+        timeout=120,
+    )
+    rs_map = _parse_game_log_rows(parse_result_set(raw_rs))
+    log.info("   Alapszakasz: %d jatekos, %d rekord",
+             len(rs_map), sum(len(v) for v in rs_map.values()))
+
+    # 2. Rájátszás (ha nincs adat, nem okoz hibát)
+    po_map = {}
+    try:
+        raw_po = nba_api_call(
+            "leaguegamelog",
+            "Meccsnaplo - Rajatszas",
+            {**gamelog_params, "SeasonType": "Playoffs"},
+            timeout=120,
+        )
+        po_map = _parse_game_log_rows(parse_result_set(raw_po))
+        log.info("   Rajatszas: %d jatekos, %d rekord",
+                 len(po_map), sum(len(v) for v in po_map.values()))
+    except Exception as exc:
+        log.warning("   Rajatszas meccsnaplo nem elerheto: %s", str(exc)[:80])
+
+    # 3. Összefésülés: PO meccsek + RS meccsek, DATE DESC sorrendben
+    all_pids = set(rs_map) | set(po_map)
+    result   = {}
+    for pid in all_pids:
+        combined = po_map.get(pid, []) + rs_map.get(pid, [])
+        # Rendezés DATE DESC (ISO dátum stringként összehasonlítható)
+        combined.sort(key=lambda g: g.get("game_date", ""), reverse=True)
+        result[pid] = combined
+
+    total_records = sum(len(v) for v in result.values())
+    log.info("   OK: %d jatekos, %d rekord ossz (RS+PO)", len(result), total_records)
     return result
 
 
