@@ -1200,7 +1200,7 @@ const firebaseConfig = {
           <div class="ou-stat-group">
             <div class="ou-stat-title">${statLabel}</div>
             ${Object.entries(lines).map(([line, entry]) => {
-              if (entry.total < 5) return "";
+              if (!entry || entry.total < 1) return "";
               const cls = entry.pct >= 70 ? "ou-hot" : entry.pct >= 60 ? "ou-good" :
                           entry.pct <= 30 ? "ou-under" : entry.pct <= 40 ? "ou-cold" : "ou-neutral";
               return `
