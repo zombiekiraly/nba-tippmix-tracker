@@ -346,71 +346,11 @@ def fetch_season_averages():
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 2. UTOLSÓ N MECCS ÁTLAGAI  (game log elsődleges, LastNGames fallback)
+# 2. UTOLSÓ N MECCS ÁTLAGAI  (Regular Season + Playoffs)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _parse_game_log_rows(rows):
-    """Nyers leaguegamelog/playergamelogs sorokat alakít game dict-ekké."""
-    result = {}
-    for r in rows:
-        pid = str(r.get("PLAYER_ID", ""))
-        if not pid:
-            continue
-        if pid not in result:
-            result[pid] = []
-        fgm  = safe_float(r.get("FGM",  0))
-        fg3m = safe_float(r.get("FG3M", 0))
-        fga  = safe_float(r.get("FGA",  0))
-        fg3a = safe_float(r.get("FG3A", 0))
-        result[pid].append({
-            "game_date":  r.get("GAME_DATE", ""),
-            "matchup":    r.get("MATCHUP", ""),
-            "wl":         r.get("WL", ""),
-            "min":        safe_float(r.get("MIN",  0)),
-            "pts":        safe_float(r.get("PTS",  0)),
-            "fg2m":       safe_float(fgm  - fg3m),
-            "fg2a":       safe_float(fga  - fg3a),
-            "fg3m":       fg3m,
-            "fg3a":       fg3a,
-            "oreb":       safe_float(r.get("OREB", 0)),
-            "dreb":       safe_float(r.get("DREB", 0)),
-            "reb":        safe_float(r.get("REB",  0)),
-            "ast":        safe_float(r.get("AST",  0)),
-            "stl":        safe_float(r.get("STL",  0)),
-            "blk":        safe_float(r.get("BLK",  0)),
-            "tov":        safe_float(r.get("TOV",  0)),
-            "plus_minus": safe_int(r.get("PLUS_MINUS", 0)),
-        })
-    return result
-
-
-def _try_fetch_gamelog(season_type, label):
-    """Megpróbál leaguegamelog-ot letölteni. Ha 503/timeout → None."""
-    params = {
-        "Counter":      0,
-        "DateFrom":     "",
-        "DateTo":       "",
-        "Direction":    "DESC",
-        "LeagueID":     "00",
-        "PlayerOrTeam": "P",
-        "Season":       SEASON,
-        "SeasonType":   season_type,
-        "Sorter":       "DATE",
-    }
-    try:
-        raw = nba_api_call("leaguegamelog", label, params, timeout=120)
-        rows = parse_result_set(raw)
-        result = _parse_game_log_rows(rows)
-        log.info("   %s: %d jatekos, %d rekord", label, len(result),
-                 sum(len(v) for v in result.values()))
-        return result
-    except Exception as exc:
-        log.warning("   %s sikertelen (%s) — fallback lesz", label, str(exc)[:80])
-        return None
-
-
 def fetch_last_n_averages(n, season_type="Regular Season"):
-    """leaguedashplayerstats alapú L-N átlag. Mindig működik."""
+    """leaguedashplayerstats LastNGames átlag. {player_id: avg_dict}"""
     label = "L%d atlagok (%s)" % (n, season_type)
     raw   = nba_api_call(
         "leaguedashplayerstats", label,
@@ -424,39 +364,14 @@ def fetch_last_n_averages(n, season_type="Regular Season"):
     return result
 
 
-def fetch_all_game_logs():
+def merge_rs_po(rs_data, po_data):
     """
-    Megpróbálja a leaguegamelog endpointot (RS + PO, összefésülve DATE DESC).
-    Ha 503/timeout → None-t ad vissza (a main() LastNGames fallbackre vált).
-    Visszaad: { player_id: [game_dict, ...] } VAGY None hiba esetén.
+    Összefésüli az alapszakasz és playoff adatokat.
+    Ahol van playoff adat, az felülírja az alapszakasz értéket.
     """
-    log.info("   Meccsnaplo letoltese (leaguegamelog)...")
-    rs_map = _try_fetch_gamelog("Regular Season", "Meccsnaplo RS")
-    if rs_map is None:
-        log.warning("   leaguegamelog nem elerheto — LastNGames fallbackre valt")
-        return None
-
-    po_map   = _try_fetch_gamelog("Playoffs", "Meccsnaplo PO") or {}
-    all_pids = set(rs_map) | set(po_map)
-    result   = {}
-    for pid in all_pids:
-        combined = po_map.get(pid, []) + rs_map.get(pid, [])
-        combined.sort(key=lambda g: g.get("game_date", ""), reverse=True)
-        result[pid] = combined
-    total = sum(len(v) for v in result.values())
-    log.info("   OK (gamelog mod): %d jatekos, %d rekord (RS+PO)", len(result), total)
-    return result
-
-
-def avg_from_games(games, n):
-    """Utolsó N meccs per-game átlaga (DATE DESC sorrendben)."""
-    subset = games[:n]
-    count  = len(subset)
-    if count == 0:
-        return {}
-    keys = ["pts", "fg2m", "fg2a", "fg3m", "fg3a", "oreb", "dreb", "reb",
-            "ast", "stl", "blk", "tov", "min"]
-    return {k: safe_float(sum(g.get(k, 0) or 0 for g in subset) / count) for k in keys}
+    merged = dict(rs_data)
+    merged.update(po_data)
+    return merged
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -482,12 +397,13 @@ def fetch_location_averages(location):
 # 4. FORMA-ALAPÚ O/U TRENDEK
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def compute_ou_form(games, season_avg, l5_avg, l10_avg, l20_avg):
+def compute_ou_form(season_avg, l5_avg, l10_avg, l20_avg):
     """
-    Valódi game-by-game O/U hit rate a teljes game log-ból (gamelog mód).
-    Ha games üres (fallback mód), ablak-átlagokra vált automatikusan.
+    Ablak-átlag alapú O/U forma. Megmutatja, hogy a különböző időszak-
+    átlagok (szezon / L20 / L10 / L5) hányban vannak a vonal felett.
+    Ha a L5/L10 már playoff adatból jön, a playoff forma tükröződik.
     """
-    avgs_windows = [
+    windows = [
         ("season", season_avg),
         ("l20",    l20_avg),
         ("l10",    l10_avg),
@@ -497,23 +413,12 @@ def compute_ou_form(games, season_avg, l5_avg, l10_avg, l20_avg):
 
     for stat, lines in OU_THRESHOLDS.items():
         result[stat] = {}
-        game_vals = [g.get(stat, 0) or 0 for g in games]
-        total     = len(game_vals)
-
         for line in lines:
             key  = str(line)
-            avgs = {wn: wd.get(stat) for wn, wd in avgs_windows if wd.get(stat) is not None}
-
-            if total > 0:
-                # ── Gamelog mód: valódi game-by-game hit rate ──────────────
-                hit = sum(1 for v in game_vals if v > line)
-                pct = safe_float(hit / total * 100)
-            else:
-                # ── Fallback mód: ablak-átlagok közül hányban van az avg > vonal
-                hit        = sum(1 for v in avgs.values() if v > line)
-                valid_win  = len(avgs)
-                pct        = safe_float(hit / valid_win * 100 if valid_win else 0)
-                total      = valid_win   # "total" = ablakok száma fallbacknél
+            avgs = {wn: wd.get(stat) for wn, wd in windows if wd.get(stat) is not None}
+            hit       = sum(1 for v in avgs.values() if v > line)
+            valid_win = len(avgs)
+            pct       = safe_float(hit / valid_win * 100 if valid_win else 0)
 
             if pct >= 70:   trend = "hot"
             elif pct >= 55: trend = "good"
@@ -523,9 +428,9 @@ def compute_ou_form(games, season_avg, l5_avg, l10_avg, l20_avg):
             result[stat][key] = {
                 "pct":        pct,
                 "hit":        hit,
-                "total":      total,
+                "total":      valid_win,
                 "over_count": hit,
-                "windows":    total,
+                "windows":    valid_win,
                 "avgs":       avgs,
                 "trend":      trend,
             }
@@ -680,17 +585,9 @@ def commit_batch_with_retry(batch, label="batch"):
             time.sleep(wait)
 
 
-def upload_player_averages(season_data, game_logs=None,
-                           fb_l5=None, fb_l10=None, fb_l20=None,
+def upload_player_averages(season_data, l5_data, l10_data, l20_data,
                            home_data=None, road_data=None):
-    """
-    game_logs: {pid: [games]} ha sikerült a leaguegamelog (gamelog mód)
-    fb_l5/l10/l20: {pid: avg_dict} ha fallback mód (LastNGames RS+PO)
-    """
-    gamelog_mode = game_logs is not None
-    log.info("Jatekos adatok feltoltese Firebase-be... (mod: %s)",
-             "gamelog" if gamelog_mode else "LastNGames fallback")
-
+    log.info("Jatekos adatok feltoltese Firebase-be...")
     db_ref  = db.collection("player_averages")
     batch   = db.batch()
     count   = 0
@@ -702,18 +599,9 @@ def upload_player_averages(season_data, game_logs=None,
             skipped += 1
             continue
 
-        if gamelog_mode:
-            games   = game_logs.get(pid, [])
-            l5_avg  = avg_from_games(games, 5)
-            l10_avg = avg_from_games(games, 10)
-            l20_avg = avg_from_games(games, 20)
-            recent  = games[:20]
-        else:
-            games   = []
-            l5_avg  = (fb_l5  or {}).get(pid, {})
-            l10_avg = (fb_l10 or {}).get(pid, {})
-            l20_avg = (fb_l20 or {}).get(pid, {})
-            recent  = []
+        l5_avg  = l5_data.get(pid,  {})
+        l10_avg = l10_data.get(pid, {})
+        l20_avg = l20_data.get(pid, {})
 
         doc = {
             "player_id":         pid,
@@ -727,9 +615,8 @@ def upload_player_averages(season_data, game_logs=None,
             "last20_avg":        l20_avg,
             "home_avg":          (home_data or {}).get(pid, {}),
             "road_avg":          (road_data or {}).get(pid, {}),
-            "recent_games":      recent,
+            "recent_games":      [],
             "ou_form":           compute_ou_form(
-                                     games,
                                      s["season_avg"], l5_avg, l10_avg, l20_avg
                                  ),
             "updated_at":        now_iso,
@@ -801,25 +688,23 @@ def main():
     log.info("=== ADATLETOLTES ===")
     season_data = fetch_season_averages()
 
-    # Elsődleges: leaguegamelog (gamelog mód) — valódi meccsenként adatok
-    # Fallback: leaguedashplayerstats LastNGames RS+PO — ha a gamelog 503-at kap
-    game_logs = fetch_all_game_logs()
-    fb_l5 = fb_l10 = fb_l20 = None
-    if game_logs is None:
-        log.info("   LastNGames fallback indul (RS + PO)...")
-        fb_l5  = fetch_last_n_averages(5,  "Regular Season")
-        fb_l10 = fetch_last_n_averages(10, "Regular Season")
-        fb_l20 = fetch_last_n_averages(20, "Regular Season")
-        try:
-            po_l5  = fetch_last_n_averages(5,  "Playoffs")
-            po_l10 = fetch_last_n_averages(10, "Playoffs")
-            # Playoff adatok felülírják az RS-t azon játékosoknál akiknek van PO adat
-            fb_l5.update(po_l5)
-            fb_l10.update(po_l10)
-            log.info("   Playoff L5/L10 atlagok beolvasztva (%d/%d jatekos)",
-                     len(po_l5), len(po_l10))
-        except Exception as exc:
-            log.warning("   Playoff atlagok nem elerhetok: %s", str(exc)[:80])
+    # RS alapszakasz L5/L10/L20
+    rs_l5  = fetch_last_n_averages(5,  "Regular Season")
+    rs_l10 = fetch_last_n_averages(10, "Regular Season")
+    rs_l20 = fetch_last_n_averages(20, "Regular Season")
+
+    # Playoff L5/L10 — ha van, felülírja az RS adatot (playoff játékosoknál aktuálisabb)
+    try:
+        po_l5  = fetch_last_n_averages(5,  "Playoffs")
+        po_l10 = fetch_last_n_averages(10, "Playoffs")
+        l5_data  = merge_rs_po(rs_l5,  po_l5)
+        l10_data = merge_rs_po(rs_l10, po_l10)
+        log.info("   Playoff L5/L10 beolvasztva: %d / %d jatekos", len(po_l5), len(po_l10))
+    except Exception as exc:
+        log.warning("   Playoff atlagok nem elerhetok (%s) — csak RS adat", str(exc)[:80])
+        l5_data  = rs_l5
+        l10_data = rs_l10
+    l20_data = rs_l20
 
     home_data   = fetch_location_averages("Home")
     road_data   = fetch_location_averages("Road")
@@ -827,8 +712,7 @@ def main():
     schedule    = fetch_schedule_b2b()
 
     log.info("=== FIREBASE FELTOLTES ===")
-    upload_player_averages(season_data, game_logs,
-                           fb_l5, fb_l10, fb_l20,
+    upload_player_averages(season_data, l5_data, l10_data, l20_data,
                            home_data, road_data)
     upload_team_stats(team_list)
     upload_schedule(schedule)
