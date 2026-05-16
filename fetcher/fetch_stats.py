@@ -12,7 +12,8 @@ import sys
 import time
 import random
 import logging
-from datetime import datetime, timezone
+import unicodedata
+from datetime import datetime, timezone, date, timedelta
 from dotenv import load_dotenv
 
 import requests
@@ -37,7 +38,9 @@ SERVICE_ACCOUNT_PATH = os.getenv("FIREBASE_SERVICE_ACCOUNT", "serviceAccount.jso
 MIN_GAMES            = int(os.getenv("MIN_GAMES", "10"))
 BATCH_SIZE           = 100
 
-NBA_STATS_BASE = "https://stats.nba.com/stats"
+NBA_STATS_BASE  = "https://stats.nba.com/stats"
+ESPN_NBA_BASE   = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba"
+BALLDONTLIE_KEY = os.getenv("BALLDONTLIE_KEY", "5a38eff8-24c9-42bd-91e8-0d0063e7f75f")
 
 # Teljes Chrome 125 fejléckészlet — kötelező sorrendben
 NBA_HEADERS = {
@@ -473,7 +476,276 @@ def avg_from_games(games, n=None):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 4. HAZAI / VENDÉG ÁTLAGOK
+# 4. ESPN PLAYOFF MECCSNAPLÓ  (ingyenes, NBA API-ban nincs 2025-26 playoff adat)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _normalize_name(name):
+    """Névkulcs normalizálás névegyeztetéshez (kisbetűs, ékezet nélkül)."""
+    name = (name or "").lower().strip()
+    name = unicodedata.normalize("NFD", name)
+    return "".join(c for c in name if unicodedata.category(c) != "Mn")
+
+
+def _espn_get(path, params=None, timeout=25):
+    """Egyszerű GET kérés az ESPN API-ra, max 3 próbálkozással."""
+    url = f"{ESPN_NBA_BASE}/{path}"
+    for attempt in range(1, 4):
+        try:
+            resp = requests.get(
+                url,
+                params=params or {},
+                headers={"User-Agent": NBA_HEADERS["User-Agent"], "Accept": "application/json"},
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except requests.exceptions.HTTPError as exc:
+            if exc.response.status_code in (429, 503) and attempt < 3:
+                time.sleep(attempt * 10)
+                continue
+            raise
+        except Exception:
+            if attempt < 3:
+                time.sleep(attempt * 5)
+                continue
+            raise
+
+
+def fetch_espn_playoff_game_ids():
+    """
+    Begyűjti az összes befejezett 2025-26 playoff meccs ESPN ID-ját.
+    balldontlie /games-ből kapja a dátumokat (ingyenes), majd ESPN
+    scoreboard-ból az ID-kat dátumonként.
+    """
+    # ── 1. Playoff meccs dátumok balldontlie-ból ──────────────────────────────
+    bdl_headers = {"Authorization": BALLDONTLIE_KEY}
+    season_year = int(SEASON.split("-")[0])   # "2025-26" → 2025
+    playoff_dates = set()
+    cursor = None
+    page   = 1
+
+    while True:
+        params = {"seasons[]": season_year, "postseason": "true", "per_page": 100}
+        if cursor:
+            params["cursor"] = cursor
+        log.info("   balldontlie games lap %d (cursor=%s)...", page, cursor)
+        time.sleep(random.uniform(1.0, 2.0))
+
+        resp = requests.get(
+            "https://api.balldontlie.io/v1/games",
+            headers=bdl_headers,
+            params=params,
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data   = resp.json()
+        games  = data.get("data", [])
+
+        for g in games:
+            if g.get("status") == "Final":
+                d = g.get("date", "")[:10]   # "2026-04-18T..."
+                if d:
+                    playoff_dates.add(d)
+
+        cursor = data.get("meta", {}).get("next_cursor")
+        if not cursor or not games:
+            break
+        page += 1
+        if page > 50:
+            break
+
+    log.info("   balldontlie: %d playoff dátum", len(playoff_dates))
+
+    # ── 2. ESPN game ID-k dátumonként ─────────────────────────────────────────
+    game_ids = []
+    for d_str in sorted(playoff_dates):
+        espn_date = d_str.replace("-", "")          # "2026-04-18" → "20260418"
+        try:
+            data = _espn_get("scoreboard", {"seasontype": 3, "dates": espn_date, "limit": 10})
+            for ev in data.get("events", []):
+                comps = ev.get("competitions", [{}])
+                completed = comps[0].get("status", {}).get("type", {}).get("completed", False) if comps else False
+                if completed:
+                    game_ids.append(ev["id"])
+        except Exception as exc:
+            log.warning("   ESPN scoreboard %s hiba: %s", d_str, str(exc)[:60])
+        time.sleep(0.4)
+
+    log.info("   ESPN: %d befejezett playoff meccs talalhato", len(game_ids))
+    return game_ids
+
+
+def _parse_espn_ratio(s):
+    """'7-10' → (7, 10)   '0-0' → (0, 0)   hibás → (0, 0)"""
+    try:
+        a, b = str(s).split("-", 1)
+        return safe_int(a), safe_int(b)
+    except Exception:
+        return 0, 0
+
+
+def fetch_espn_boxscore(game_id):
+    """
+    Egy ESPN meccs box score-jából kinyeri az összes játékos statisztiáját.
+    Visszaad: [(normalized_player_name, game_dict), ...]
+
+    Stat index rend (ESPN): MIN, PTS, FG, 3PT, FT, REB, AST, TO, STL, BLK, OREB, DREB, PF, +/-
+    """
+    data = _espn_get("summary", {"event": game_id})
+
+    # ── Meccs dátum + csapat info a header-ből ────────────────────────────────
+    game_date = ""
+    team_map  = {}    # team_id (str) → {"abbr", "is_home", "score"}
+
+    header_comps = data.get("header", {}).get("competitions", [{}])
+    if header_comps:
+        comp = header_comps[0]
+        raw_date  = comp.get("date", "")
+        game_date = raw_date[:10] if raw_date else ""   # "2026-05-10T01:00Z" → "2026-05-10"
+
+        for c in comp.get("competitors", []):
+            tid = str(c.get("id") or c.get("team", {}).get("id", ""))
+            team_map[tid] = {
+                "abbr":    c.get("team", {}).get("abbreviation", ""),
+                "is_home": c.get("homeAway") == "home",
+                "score":   safe_int(c.get("score", 0) or 0),
+            }
+
+    entries = []   # [(normalized_name, game_dict)]
+
+    for team_entry in data.get("boxscore", {}).get("players", []):
+        team_obj  = team_entry.get("team", {})
+        my_tid    = str(team_obj.get("id", ""))
+        my_info   = team_map.get(my_tid, {})
+        my_abbr   = my_info.get("abbr") or team_obj.get("abbreviation", "")
+
+        # Ellenfél csapat
+        opp_info  = next((v for k, v in team_map.items() if k != my_tid), {})
+        opp_abbr  = opp_info.get("abbr", "")
+
+        # Matchup szöveg
+        if my_info.get("is_home"):
+            matchup = f"{my_abbr} vs. {opp_abbr}"
+        else:
+            matchup = f"{my_abbr} @ {opp_abbr}"
+
+        # W/L
+        my_score  = my_info.get("score",  0)
+        opp_score = opp_info.get("score", 0)
+        wl        = "W" if my_score > opp_score else "L"
+
+        # Statisztikák — csak az első statistics blokk (teljes meccs)
+        stat_block = (team_entry.get("statistics") or [{}])[0]
+        for ath in stat_block.get("athletes", []):
+            if ath.get("didNotPlay"):
+                continue
+            athlete = ath.get("athlete", {})
+            name    = athlete.get("displayName", "").strip()
+            stats   = ath.get("stats", [])
+
+            if not name or len(stats) < 14:
+                continue
+
+            min_val  = safe_int(stats[0])
+            if min_val == 0:
+                continue   # nem játszott
+
+            fgm, fga   = _parse_espn_ratio(stats[2])
+            fg3m, fg3a = _parse_espn_ratio(stats[3])
+            ftm,  fta  = _parse_espn_ratio(stats[4])
+
+            game = {
+                "game_date":  game_date,
+                "matchup":    matchup,
+                "wl":         wl,
+                "min":        safe_float(min_val),
+                "pts":        safe_int(stats[1]),
+                "fgm":        fgm,
+                "fga":        fga,
+                "fg2m":       fgm  - fg3m,
+                "fg2a":       fga  - fg3a,
+                "fg3m":       fg3m,
+                "fg3a":       fg3a,
+                "ftm":        ftm,
+                "fta":        fta,
+                "reb":        safe_int(stats[5]),
+                "ast":        safe_int(stats[6]),
+                "tov":        safe_int(stats[7]),
+                "stl":        safe_int(stats[8]),
+                "blk":        safe_int(stats[9]),
+                "oreb":       safe_int(stats[10]),
+                "dreb":       safe_int(stats[11]),
+                "plus_minus": safe_int(stats[13]),
+            }
+            entries.append((_normalize_name(name), game))
+
+    return entries
+
+
+def fetch_espn_playoff_logs():
+    """
+    Letölti az összes 2025-26 playoff meccs box score-ját ESPN-ről.
+    Visszaad: {normalized_player_name: [game_dict, ...]} dátum szerint csökkentve.
+    """
+    game_ids = fetch_espn_playoff_game_ids()
+    if not game_ids:
+        raise ValueError("Nincsenek ESPN playoff meccs ID-k")
+
+    result = {}   # normalized_name → [game_dict, ...]
+    ok = 0
+    fail = 0
+
+    for i, gid in enumerate(game_ids):
+        log.info("   ESPN box score %d/%d (game_id=%s)...", i + 1, len(game_ids), gid)
+        try:
+            entries = fetch_espn_boxscore(gid)
+            for nk, game in entries:
+                result.setdefault(nk, []).append(game)
+            ok += 1
+        except Exception as exc:
+            log.warning("   ESPN box score %s hiba: %s", gid, str(exc)[:80])
+            fail += 1
+        time.sleep(0.5)
+
+    # Dátum szerint rendezés (legfrissebb elöl)
+    for nk in result:
+        result[nk].sort(key=lambda g: g["game_date"], reverse=True)
+
+    log.info("   ESPN playoff logs KESZ: %d meccs OK / %d hiba / %d jatekos",
+             ok, fail, len(result))
+    return result
+
+
+def map_espn_to_nba_ids(espn_by_name, season_data):
+    """
+    ESPN névkulcs → NBA player_id leképezés season_data alapján.
+    Visszaad: {nba_player_id: [game_dict, ...]}
+    """
+    name_to_pid = {}
+    for pid, s in season_data.items():
+        nk = _normalize_name(s["player_name"])
+        name_to_pid[nk] = pid
+
+    result    = {}
+    unmatched = []
+
+    for nk, games in espn_by_name.items():
+        pid = name_to_pid.get(nk)
+        if pid:
+            result[pid] = games
+        else:
+            unmatched.append(nk)
+
+    if unmatched[:5]:
+        log.warning("   %d jatekos nem egyeztethetó: %s...",
+                    len(unmatched), unmatched[:5])
+    log.info("   ESPN→NBA ID: %d egyeztetett, %d nem egyeztetett",
+             len(result), len(unmatched))
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 5. HAZAI / VENDÉG ÁTLAGOK
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def fetch_location_averages(location):
@@ -821,54 +1093,45 @@ def main():
     rs_l10 = fetch_last_n_averages(10, "Regular Season")
     rs_l20 = fetch_last_n_averages(20, "Regular Season")
 
-    # Playoff L5/L10 — ha van, felülírja az RS adatot (playoff játékosoknál aktuálisabb)
-    try:
-        po_l5  = fetch_last_n_averages(5,  "Playoffs")
-        po_l10 = fetch_last_n_averages(10, "Playoffs")
-        l5_data  = merge_rs_po(rs_l5,  po_l5)
-        l10_data = merge_rs_po(rs_l10, po_l10)
-        log.info("   Playoff L5/L10 beolvasztva: %d / %d jatekos", len(po_l5), len(po_l10))
-    except Exception as exc:
-        log.warning("   Playoff atlagok nem elerhetok (%s) — csak RS adat", str(exc)[:80])
-        l5_data  = rs_l5
-        l10_data = rs_l10
+    # RS L5/L10/L20 fallback adatok (ha game log nem jön le, ezeket használja)
+    l5_data  = rs_l5
+    l10_data = rs_l10
     l20_data = rs_l20
 
-    # ── Játékos meccsnapló: egyedi meccsek a modal táblához + pontos L5/L10 ──
+    # ── RS game logs (NBA API — playergamelogs) ───────────────────────────────
     game_logs = {}
     try:
-        log.info("   Jatekos meccsnaplo letoltese (RS L10)...")
-        rs_logs = fetch_player_game_logs(10, "Regular Season")
+        log.info("   RS meccsnaplo (NBA API)...")
+        rs_logs   = fetch_player_game_logs(10, "Regular Season")
         game_logs = dict(rs_logs)
+        log.info("   RS game logs OK: %d jatekos", len(rs_logs))
+    except Exception as exc:
+        log.warning("   RS game logs hiba (%s) — leaguedashplayerstats fallback", str(exc)[:80])
 
-        # Playoff meccsnaplók, ha vannak
-        try:
-            log.info("   Jatekos meccsnaplo letoltese (Playoffs L10)...")
-            po_logs = fetch_player_game_logs(10, "Playoffs")
-            game_logs.update(po_logs)           # PO felülírja RS-t
-            log.info("   Playoff game logs beolvasztva: %d jatekos", len(po_logs))
-        except Exception as po_exc:
-            log.warning("   Playoff game logs nem elerhetok (%s)", str(po_exc)[:80])
+    # ── Playoff game logs (ESPN — NBA API-ban nincs 2025-26 playoff adat) ─────
+    try:
+        log.info("   Playoff meccsnaplo (ESPN API)...")
+        espn_logs    = fetch_espn_playoff_logs()
+        po_game_logs = map_espn_to_nba_ids(espn_logs, season_data)
+        game_logs.update(po_game_logs)           # PO felülírja RS-t
+        log.info("   ESPN playoff logs OK: %d jatekos", len(po_game_logs))
+    except Exception as exc:
+        log.warning("   ESPN playoff logs hiba (%s) — RS-only adat", str(exc)[:80])
 
-        # Pontos L5 / L10 átlagok a valódi meccsekből
+    # ── Pontos L5/L10 átlagok a valódi meccsekből ────────────────────────────
+    if game_logs:
         gl_l5  = {pid: avg_from_games(games, 5)  for pid, games in game_logs.items()}
         gl_l10 = {pid: avg_from_games(games, 10) for pid, games in game_logs.items()}
-
-        # Kiegészítés: akikre nincs game log, ott marad a leaguedashplayerstats adat
+        # Akikre nincs game log → marad a leaguedashplayerstats adat
         for pid in l5_data:
             if pid not in gl_l5:
-                gl_l5[pid] = l5_data[pid]
+                gl_l5[pid]  = l5_data[pid]
         for pid in l10_data:
             if pid not in gl_l10:
                 gl_l10[pid] = l10_data[pid]
-
         l5_data  = gl_l5
         l10_data = gl_l10
-        log.info("   Pontos L5/L10 atlagok kiszamitva %d jatekosra", len(gl_l10))
-
-    except Exception as exc:
-        log.warning("   Game logs fetch sikertelen (%s) — leaguedashplayerstats adat hasznalva", str(exc)[:80])
-        game_logs = {}
+        log.info("   Pontos L5/L10 atlagok: %d jatekos", len(gl_l10))
 
     home_data   = fetch_location_averages("Home")
     road_data   = fetch_location_averages("Road")
