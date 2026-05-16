@@ -32,7 +32,7 @@ logging.basicConfig(
 )
 log = logging.getLogger("nba-tracker")
 
-SEASON               = os.getenv("NBA_SEASON", "2024-25")
+SEASON               = os.getenv("NBA_SEASON", "2025-26")
 SERVICE_ACCOUNT_PATH = os.getenv("FIREBASE_SERVICE_ACCOUNT", "serviceAccount.json")
 MIN_GAMES            = int(os.getenv("MIN_GAMES", "10"))
 BATCH_SIZE           = 100
