@@ -52,6 +52,9 @@
   <button class="tab-btn" data-tab="parlay">
     🎰 Kombinátor
   </button>
+  <button class="tab-btn" data-tab="ajanlat">
+    🎯 Ajánló
+  </button>
 </nav>
 
 <!-- Mai meccsek / B2B sáv -->
@@ -530,6 +533,85 @@
     <div id="modal-ou-cards" class="ou-card-grid"></div>
   </div>
 </div>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     TAB: AJÁNLÓ
+══════════════════════════════════════════════════════════════════════ -->
+<section id="tab-ajanlat" class="tab-content">
+  <div class="controls-bar" style="flex-wrap:wrap;gap:12px">
+    <div class="control-group">
+      <label>📅 Meccs</label>
+      <select id="ajanlat-match-select" style="min-width:200px">
+        <option value="">Betöltés…</option>
+      </select>
+    </div>
+    <div class="control-group">
+      <label>📊 Stat típus</label>
+      <select id="ajanlat-stat-filter">
+        <option value="">Összes</option>
+        <option value="pts">Pontszám</option>
+        <option value="reb">Lepattanó</option>
+        <option value="ast">Assziszt</option>
+        <option value="fg3m">3-pontos</option>
+        <option value="blk">Blokk</option>
+        <option value="stl">Labdaszerzés</option>
+        <option value="tov">Eladott labda</option>
+        <option value="pts_reb">Pont+Lepattanó</option>
+        <option value="pts_ast">Pont+Assziszt</option>
+        <option value="pts_ast_reb">Pont+Assziszt+Lep.</option>
+      </select>
+    </div>
+    <div class="control-group">
+      <label>💰 Min. EV</label>
+      <select id="ajanlat-ev-filter">
+        <option value="0">Minden pozitív</option>
+        <option value="0.05">+5% felett</option>
+        <option value="0.1" selected>+10% felett</option>
+        <option value="0.2">+20% felett</option>
+      </select>
+    </div>
+    <div class="control-group">
+      <label>🔀 Irány</label>
+      <select id="ajanlat-dir-filter">
+        <option value="">Mindkettő</option>
+        <option value="over">Csak OVER</option>
+        <option value="under">Csak UNDER</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="ajanlat-status" style="padding:12px 16px;color:#718096;font-size:13px"></div>
+
+  <div class="table-wrapper">
+    <table class="data-table" id="ajanlat-table">
+      <thead>
+        <tr>
+          <th>Játékos</th>
+          <th>Stat</th>
+          <th>Vonal</th>
+          <th>Irány</th>
+          <th>Odds</th>
+          <th title="Szezon átlag">Avg</th>
+          <th title="Playoff / utolsó 5 meccs átlag">L5 Avg</th>
+          <th title="Historikus találati arány ennél a vonalnál">Hit%</th>
+          <th title="Várható érték = hit% × odds − 1">EV</th>
+          <th>Ajánlat</th>
+        </tr>
+      </thead>
+      <tbody id="ajanlat-tbody">
+        <tr><td colspan="10" style="text-align:center;color:#718096;padding:32px">Válassz meccset a betöltéshez…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div style="padding:12px 16px;font-size:11px;color:#4a5568;line-height:1.8">
+    <strong>Módszertan:</strong>
+    Hit% = historikus találati arány (Firebase ou_form) az adott vonalnál.
+    Ha nincs historikus adat, a szezon-átlagból becsüljük.
+    EV = Hit% × odds − 1. Ha EV &gt; 0 → matematikailag értékfogadás.
+    <br>Ajánlott tét: Kelly-kritérium = (Hit% − (1−Hit%) / (odds−1)) × tőke.
+  </div>
+</section>
 
 <!-- ══════════════════════════════════════════════════════════════════════
      FIREBASE SDK (CDN)
@@ -1649,6 +1731,9 @@ const firebaseConfig = {
           parlayPopulateLines();
         });
       }
+      if (btn.dataset.tab === "ajanlat") {
+        loadAjanlatMatches();
+      }
     });
   });
 
@@ -1738,6 +1823,226 @@ const firebaseConfig = {
     if (e.target === document.getElementById("player-modal")) closeModal();
   });
   document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
+
+  // ════════════════════════════════════════════════════════════════════════
+  // AJÁNLÓ TAB
+  // ════════════════════════════════════════════════════════════════════════
+
+  const STAT_LABEL = {
+    pts: "Pontszám", reb: "Lepattanó", ast: "Assziszt",
+    fg3m: "3-pontos", blk: "Blokk", stl: "Labdaszerzés",
+    tov: "Eladott labda", pts_reb: "Pont+Lep", pts_ast: "Pont+Asz",
+    pts_ast_reb: "P+A+R", stl_blk: "Szer+Blokk", ast_reb: "Asz+Lep", "?": "Egyéb"
+  };
+
+  let ajanlatProps = [];
+  let ajanlatPlayers = {};
+  let ajanlatLoaded = false;
+
+  async function loadAjanlatMatches() {
+    if (ajanlatLoaded) { renderAjanlat(); return; }
+    document.getElementById("ajanlat-status").textContent = "Betöltés…";
+
+    // Elérhető dátumok/összesítők
+    const summSnap = await getDocs(query(collection(db, "tippmix_props")));
+    const summaries = {};
+    summSnap.forEach(d => {
+      const data = d.data();
+      if (d.id.endsWith("__summary")) {
+        summaries[data.date] = data.match_name || data.date;
+      }
+    });
+
+    // Props
+    ajanlatProps = [];
+    summSnap.forEach(d => {
+      if (d.id.endsWith("__summary")) return;
+      const data = d.data();
+      if (data.player_name) ajanlatProps.push(data);
+    });
+
+    // Játékos statisztikák
+    const playerSnap = await getDocs(collection(db, "player_averages"));
+    ajanlatPlayers = {};
+    playerSnap.forEach(d => {
+      const data = d.data();
+      if (data.player_name) ajanlatPlayers[data.player_name] = data;
+    });
+
+    // Match select feltöltése
+    const sel = document.getElementById("ajanlat-match-select");
+    sel.innerHTML = "";
+    if (Object.keys(summaries).length === 0) {
+      sel.innerHTML = '<option value="">Nincs adat – töltsd le a TippMix JSON-t</option>';
+    } else {
+      Object.entries(summaries).sort().reverse().forEach(([date, name]) => {
+        const opt = document.createElement("option");
+        opt.value = date;
+        opt.textContent = name + " (" + date + ")";
+        sel.appendChild(opt);
+      });
+    }
+
+    ajanlatLoaded = true;
+    document.getElementById("ajanlat-status").textContent =
+      ajanlatProps.length + " prop betöltve, " + Object.keys(ajanlatPlayers).length + " játékos stat";
+
+    renderAjanlat();
+
+    sel.addEventListener("change", renderAjanlat);
+    document.getElementById("ajanlat-stat-filter").addEventListener("change", renderAjanlat);
+    document.getElementById("ajanlat-ev-filter").addEventListener("change", renderAjanlat);
+    document.getElementById("ajanlat-dir-filter").addEventListener("change", renderAjanlat);
+  }
+
+  function getStatValue(playerData, statKey) {
+    // Visszaadja {season, l5, l10} átlagokat az adott stat kulcsra
+    const sa = playerData.season_avg || {};
+    const l5 = playerData.last5_avg || {};
+    const l10 = playerData.last10_avg || {};
+
+    const COMBINED = {
+      pts_reb:     d => (d.pts||0) + (d.reb||0),
+      pts_ast:     d => (d.pts||0) + (d.ast||0),
+      pts_ast_reb: d => (d.pts||0) + (d.ast||0) + (d.reb||0),
+      ast_reb:     d => (d.ast||0) + (d.reb||0),
+      stl_blk:     d => (d.stl||0) + (d.blk||0),
+    };
+
+    const calc = COMBINED[statKey] || (d => d[statKey] || 0);
+    return {
+      season: sa && Object.keys(sa).length ? calc(sa) : null,
+      l5:     l5 && Object.keys(l5).length ? calc(l5) : null,
+      l10:    l10 && Object.keys(l10).length ? calc(l10) : null,
+    };
+  }
+
+  function getHitPct(playerData, statKey, line, direction) {
+    // Próbáljuk az ou_form-ból kiolvasni
+    const ouForm = playerData.ou_form || {};
+    const statOu = ouForm[statKey] || {};
+    const lineStr = String(line);
+
+    if (statOu[lineStr]) {
+      const entry = statOu[lineStr];
+      const pct = direction === "over" ? entry.pct : (100 - entry.pct);
+      return { pct: pct / 100, source: "historikus", games: entry.total };
+    }
+
+    // Ha nincs historikus → becsüljük az átlagból
+    const avgs = getStatValue(playerData, statKey);
+    const avg = avgs.l5 ?? avgs.l10 ?? avgs.season;
+    if (avg === null || line === null) return null;
+
+    // Egyszerű normál-eloszlás közelítés (szórás ≈ átlag * 0.4)
+    const std = avg * 0.4 || 1;
+    const z = (line + 0.5 - avg) / std;
+    const cdf = 0.5 * (1 + erf(z / Math.SQRT2));
+    const pct = direction === "over" ? 1 - cdf : cdf;
+    return { pct, source: "becsült", games: 0 };
+  }
+
+  function erf(x) {
+    const a1=0.254829592, a2=-0.284496736, a3=1.421413741, a4=-1.453152027, a5=1.061405429, p=0.3275911;
+    const sign = x < 0 ? -1 : 1;
+    x = Math.abs(x);
+    const t = 1 / (1 + p * x);
+    const y = 1 - (((((a5*t+a4)*t)+a3)*t+a2)*t+a1)*t*Math.exp(-x*x);
+    return sign * y;
+  }
+
+  function findPlayer(name) {
+    if (ajanlatPlayers[name]) return ajanlatPlayers[name];
+    // Fuzzy: kisbetűs, ékezet nélküli egyezés
+    const norm = s => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
+    const target = norm(name);
+    for (const [k, v] of Object.entries(ajanlatPlayers)) {
+      if (norm(k) === target || norm(k).includes(target) || target.includes(norm(k))) return v;
+    }
+    return null;
+  }
+
+  function renderAjanlat() {
+    const selectedDate = document.getElementById("ajanlat-match-select").value;
+    const statFilter   = document.getElementById("ajanlat-stat-filter").value;
+    const minEv        = parseFloat(document.getElementById("ajanlat-ev-filter").value) || 0;
+    const dirFilter    = document.getElementById("ajanlat-dir-filter").value;
+
+    let props = ajanlatProps.filter(p => !selectedDate || p.date === selectedDate);
+    if (statFilter) props = props.filter(p => p.stat_key === statFilter);
+    if (dirFilter)  props = props.filter(p => p.direction === dirFilter);
+
+    // EV számítás minden propra
+    const rows = [];
+    for (const prop of props) {
+      if (!prop.odds || prop.status !== "1") continue;
+      const playerData = findPlayer(prop.player_name);
+      const avgs = playerData ? getStatValue(playerData, prop.stat_key) : null;
+      const hitResult = playerData ? getHitPct(playerData, prop.stat_key, prop.line, prop.direction) : null;
+
+      const hitPct = hitResult ? hitResult.pct : null;
+      const ev = hitPct !== null ? (hitPct * prop.odds - 1) : null;
+
+      if (ev !== null && ev < minEv) continue;
+
+      rows.push({
+        player: prop.player_name,
+        stat: prop.stat_key,
+        line: prop.line,
+        direction: prop.direction,
+        odds: prop.odds,
+        seasonAvg: avgs ? avgs.season : null,
+        l5Avg: avgs ? avgs.l5 : null,
+        hitPct,
+        hitSource: hitResult ? hitResult.source : null,
+        ev,
+        hasData: !!playerData,
+      });
+    }
+
+    // Rendezés: EV csökkenő, nincs adat a végére
+    rows.sort((a, b) => {
+      if (a.ev === null && b.ev === null) return 0;
+      if (a.ev === null) return 1;
+      if (b.ev === null) return -1;
+      return b.ev - a.ev;
+    });
+
+    const tbody = document.getElementById("ajanlat-tbody");
+    if (rows.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#718096;padding:32px">Nincs találat a szűrőkkel.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = rows.map(r => {
+      const evClass  = r.ev === null ? "" : r.ev >= 0.15 ? "ev-high" : r.ev >= 0.05 ? "ev-mid" : r.ev >= 0 ? "ev-low" : "ev-neg";
+      const evStr    = r.ev !== null ? (r.ev >= 0 ? "+" : "") + (r.ev * 100).toFixed(1) + "%" : "—";
+      const hitStr   = r.hitPct !== null ? (r.hitPct * 100).toFixed(0) + "%" + (r.hitSource === "becsült" ? "*" : "") : "—";
+      const dirLabel = r.direction === "over" ? '<span class="badge-over">OVER</span>' : '<span class="badge-under">UNDER</span>';
+      const recLabel = r.ev === null ? "—"
+        : r.ev >= 0.2  ? '<span class="rec-strong">★★★ Erős</span>'
+        : r.ev >= 0.1  ? '<span class="rec-mid">★★ Közepes</span>'
+        : r.ev >= 0.05 ? '<span class="rec-weak">★ Gyenge</span>'
+        : '<span style="color:#4a5568">Nincs érték</span>';
+
+      const saStr  = r.seasonAvg !== null ? r.seasonAvg.toFixed(1) : "—";
+      const l5Str  = r.l5Avg    !== null ? r.l5Avg.toFixed(1)    : "—";
+      const lineStr = r.line !== null ? r.line.toFixed(1) : "—";
+
+      return `<tr>
+        <td><strong>${r.player}</strong></td>
+        <td>${STAT_LABEL[r.stat] || r.stat}</td>
+        <td>${lineStr}</td>
+        <td>${dirLabel}</td>
+        <td>${r.odds}</td>
+        <td>${saStr}</td>
+        <td>${l5Str}</td>
+        <td>${hitStr}</td>
+        <td class="${evClass}">${evStr}</td>
+        <td>${recLabel}</td>
+      </tr>`;
+    }).join("");
+  }
 
   // ════════════════════════════════════════════════════════════════════════
   // INICIALIZÁLÁS

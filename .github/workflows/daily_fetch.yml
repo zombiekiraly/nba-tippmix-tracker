@@ -42,6 +42,7 @@ jobs:
           NBA_SEASON=${{ github.event.inputs.season || '2025-26' }}
           MIN_GAMES=10
           FIREBASE_SERVICE_ACCOUNT=serviceAccount.json
+          BALLDONTLIE_KEY=${{ secrets.BALLDONTLIE_KEY }}
           ENVEOF
 
       - name: 🏀 NBA adatok letöltése és feltöltése

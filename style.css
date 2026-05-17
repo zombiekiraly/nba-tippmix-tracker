@@ -1040,6 +1040,19 @@ body {
 .parlay-odds-input-row label { font-size: 0.8rem; color: var(--muted); white-space: nowrap; }
 .parlay-odds-input-row input { flex: 1; }
 
+/* ── AJÁNLÓ TAB ────────────────────────────────────────────────────────── */
+.badge-over  { background: #1a4a2e; color: #4ade80; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; }
+.badge-under { background: #3a1a1a; color: #f87171; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; }
+
+.ev-high { color: #4ade80; font-weight: 700; }
+.ev-mid  { color: #a3e635; font-weight: 600; }
+.ev-low  { color: #facc15; }
+.ev-neg  { color: #f87171; }
+
+.rec-strong { color: #4ade80; font-weight: 700; }
+.rec-mid    { color: #a3e635; font-weight: 600; }
+.rec-weak   { color: #facc15; }
+
 /* ── GÖRGETŐSÁV stílus ─────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: var(--bg); }

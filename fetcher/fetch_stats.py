@@ -40,7 +40,7 @@ BATCH_SIZE           = 100
 
 NBA_STATS_BASE  = "https://stats.nba.com/stats"
 ESPN_NBA_BASE   = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba"
-BALLDONTLIE_KEY = os.getenv("BALLDONTLIE_KEY", "5a38eff8-24c9-42bd-91e8-0d0063e7f75f")
+BALLDONTLIE_KEY = os.getenv("BALLDONTLIE_KEY", "")
 
 # Teljes Chrome 125 fejléckészlet — kötelező sorrendben
 NBA_HEADERS = {
