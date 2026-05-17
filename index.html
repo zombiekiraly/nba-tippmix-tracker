@@ -227,10 +227,13 @@
       </select>
     </div>
     <div class="control-group">
-      <label for="ou-line-select">🎯 Fogadási vonal</label>
-      <select id="ou-line-select">
-        <!-- JavaScript tölti fel a statisztika alapján -->
-      </select>
+      <label for="ou-line-input">🎯 Fogadási vonal</label>
+      <div style="display:flex;gap:6px;align-items:center">
+        <input type="number" id="ou-line-input" placeholder="pl. 24.5" step="0.5" min="0" style="width:90px" />
+        <select id="ou-line-select" style="font-size:11px;padding:6px 4px">
+          <option value="">Összes</option>
+        </select>
+      </div>
     </div>
     <span id="ou-count" class="count-badge">0 találat</span>
   </div>
@@ -379,7 +382,13 @@
 
       <div class="ev-field">
         <label>🎯 Vonal</label>
-        <select id="ev-line"></select>
+        <div style="display:flex;gap:6px;align-items:center">
+          <input type="number" id="ev-line" placeholder="pl. 24.5" step="0.5" min="0"
+                 style="flex:1" />
+          <select id="ev-line-presets" style="width:90px;font-size:11px;padding:6px 4px">
+            <option value="">Javaslat…</option>
+          </select>
+        </div>
       </div>
 
       <div class="ev-field">
@@ -444,7 +453,13 @@
 
       <div class="ev-field">
         <label>🎯 Vonal</label>
-        <select id="parlay-line"></select>
+        <div style="display:flex;gap:6px;align-items:center">
+          <input type="number" id="parlay-line" placeholder="pl. 24.5" step="0.5" min="0"
+                 style="flex:1" />
+          <select id="parlay-line-presets" style="width:90px;font-size:11px;padding:6px 4px">
+            <option value="">Javaslat…</option>
+          </select>
+        </div>
       </div>
 
       <div class="ev-field">
@@ -893,14 +908,19 @@ const firebaseConfig = {
     const stat    = document.getElementById("ou-stat-filter").value;
     const lines   = OU_THRESHOLDS[stat] ?? [];
     const sel     = document.getElementById("ou-line-select");
-    sel.innerHTML = lines.map(l => `<option value="${l}">${l}</option>`).join("");
+    const input   = document.getElementById("ou-line-input");
+    sel.innerHTML = '<option value="">Összes</option>' +
+      lines.map(l => `<option value="${l}">${l}</option>`).join("");
+    sel.onchange = () => { if (sel.value) { input.value = sel.value; sel.value = ""; renderOuTable(); } };
+    if (input && !input.value && lines.length) input.value = lines[Math.floor(lines.length / 2)];
   }
 
   function renderOuTable() {
     const search = document.getElementById("ou-player-search").value.toLowerCase().trim();
     const stat   = document.getElementById("ou-stat-filter").value;
     const minPct = parseFloat(document.getElementById("ou-min-pct").value) || 0;
-    const line   = parseFloat(document.getElementById("ou-line-select").value);
+    const lineInput = document.getElementById("ou-line-input");
+    const line   = parseFloat(lineInput?.value);
 
     const statLabels = {
       pts: "PTS", ast: "AST", reb: "REB", fg3m: "3PM", fg2m: "2PM", stl: "STL", blk: "BLK"
@@ -1497,10 +1517,17 @@ const firebaseConfig = {
   let evDir       = 'over';
 
   function evPopulateLines() {
-    const stat = document.getElementById('ev-stat')?.value;
-    const sel  = document.getElementById('ev-line');
-    if (!sel || !stat) return;
-    sel.innerHTML = (OU_THRESHOLDS[stat] ?? []).map(l => `<option value="${l}">${l}</option>`).join('');
+    const stat     = document.getElementById('ev-stat')?.value;
+    const presets  = document.getElementById('ev-line-presets');
+    const input    = document.getElementById('ev-line');
+    if (!stat) return;
+    const lines = OU_THRESHOLDS[stat] ?? [];
+    if (presets) {
+      presets.innerHTML = '<option value="">Javaslat…</option>' +
+        lines.map(l => `<option value="${l}">${l}</option>`).join('');
+      presets.onchange = () => { if (presets.value) { input.value = presets.value; presets.value = ''; renderEvResult(); } };
+    }
+    if (input && !input.value && lines.length) input.value = lines[Math.floor(lines.length / 2)];
     renderEvResult();
   }
 
@@ -1606,10 +1633,17 @@ const firebaseConfig = {
   let parlayPlayer = null;
 
   function parlayPopulateLines() {
-    const stat = document.getElementById('parlay-stat')?.value;
-    const sel  = document.getElementById('parlay-line');
-    if (!sel || !stat) return;
-    sel.innerHTML = (OU_THRESHOLDS[stat] ?? []).map(l => `<option value="${l}">${l}</option>`).join('');
+    const stat    = document.getElementById('parlay-stat')?.value;
+    const presets = document.getElementById('parlay-line-presets');
+    const input   = document.getElementById('parlay-line');
+    if (!stat) return;
+    const lines = OU_THRESHOLDS[stat] ?? [];
+    if (presets) {
+      presets.innerHTML = '<option value="">Javaslat…</option>' +
+        lines.map(l => `<option value="${l}">${l}</option>`).join('');
+      presets.onchange = () => { if (presets.value) { input.value = presets.value; presets.value = ''; } };
+    }
+    if (input && !input.value && lines.length) input.value = lines[Math.floor(lines.length / 2)];
   }
 
   function addToParlay() {
@@ -1776,7 +1810,7 @@ const firebaseConfig = {
     populateOuLineSelect();
     renderOuTable();
   });
-  ["ou-player-search","ou-min-pct","ou-line-select"].forEach(id => {
+  ["ou-player-search","ou-min-pct","ou-line-input"].forEach(id => {
     document.getElementById(id)?.addEventListener("input", renderOuTable);
     document.getElementById(id)?.addEventListener("change", renderOuTable);
   });
@@ -1787,7 +1821,7 @@ const firebaseConfig = {
 
   // EV Kalkulátor
   document.getElementById('ev-stat')?.addEventListener('change', () => { evPopulateLines(); renderEvResult(); });
-  document.getElementById('ev-line')?.addEventListener('change', renderEvResult);
+  document.getElementById('ev-line')?.addEventListener('input', renderEvResult);
   document.getElementById('ev-odds')?.addEventListener('input', renderEvResult);
   document.getElementById('ev-over-btn')?.addEventListener('click', () => {
     evDir = 'over';
