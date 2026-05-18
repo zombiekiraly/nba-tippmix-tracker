@@ -176,9 +176,22 @@ if __name__ == "__main__":
     for stat, cnt in Counter(p["stat_key"] for p in props).most_common():
         print("  %3d  %s" % (cnt, stat))
 
-    match_date = datetime.date.today().isoformat()
-    match_name = "Detroit - Cleveland"
+    # Dátum és meccs neve a fájlnévből vagy argumentumból
+    basename = os.path.basename(source)
+    # tippmix_YYYY-MM-DD.json → YYYY-MM-DD
+    import re
+    m = re.search(r'(\d{4}-\d{2}-\d{2})', basename)
+    match_date = m.group(1) if m else datetime.date.today().isoformat()
 
+    # Meccs neve: argumentumból vagy interaktívan
+    if len(sys.argv) >= 3:
+        match_name = sys.argv[2]
+    else:
+        match_name = input("Meccs neve (pl. Oklahoma City - San Antonio): ").strip()
+        if not match_name:
+            match_name = "Ismeretlen meccs"
+
+    print("Dátum: %s  |  Meccs: %s" % (match_date, match_name))
     ans = input("\nMentsük Firebase-be? (i/n): ").strip().lower()
     if ans == "i":
         save_to_firebase(props, match_name, match_date)
