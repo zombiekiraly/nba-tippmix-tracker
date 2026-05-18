@@ -930,20 +930,31 @@ const firebaseConfig = {
 
     for (const p of allPlayers) {
       if (search && !p.player_name.toLowerCase().includes(search)) continue;
-      const entry = p.ou_form?.[stat]?.[String(line)];
-      if (!entry || entry.total < 5) continue;
-      if (entry.pct < minPct) continue;
 
-      rows.push({
-        player:     p,
-        entry,
-        seasonAvg:  p.season_avg?.[stat] ?? 0,
-        l5Avg:      p.last5_avg?.[stat]  ?? 0,
-        l10Avg:     p.last10_avg?.[stat] ?? 0,
-      });
+      const entry = p.ou_form?.[stat]?.[String(line)];
+      const seasonAvg = p.season_avg?.[stat] ?? 0;
+      const l5Avg     = p.last5_avg?.[stat]  ?? 0;
+      const l10Avg    = p.last10_avg?.[stat] ?? 0;
+
+      if (entry && entry.total >= 5) {
+        // Historikus adat megvan
+        if (entry.pct < minPct) continue;
+        rows.push({ player: p, entry, pct: entry.pct, estimated: false, seasonAvg, l5Avg, l10Avg });
+      } else {
+        // Nincs pontos historikus → becsüljük normál-eloszlással
+        const avgs = getStatValue(p, stat);
+        const avg  = avgs.l5 ?? avgs.l10 ?? avgs.season;
+        if (avg === null || !isFinite(line)) continue;
+        const std  = avg * 0.4 || 1;
+        const z    = (line + 0.5 - avg) / std;
+        const cdf  = 0.5 * (1 + erf(z / Math.SQRT2));
+        const overPct = Math.round((1 - cdf) * 100);
+        if (overPct < minPct) continue;
+        rows.push({ player: p, entry: null, pct: overPct, estimated: true, seasonAvg, l5Avg, l10Avg });
+      }
     }
 
-    rows.sort((a, b) => b.entry.pct - a.entry.pct);
+    rows.sort((a, b) => b.pct - a.pct);
     document.getElementById("ou-count").textContent = `${rows.length} találat`;
 
     const tbody = document.getElementById("ou-tbody");
@@ -953,8 +964,7 @@ const firebaseConfig = {
     }
 
     tbody.innerHTML = rows.map((r, i) => {
-      const { player, entry, seasonAvg, l5Avg, l10Avg } = r;
-      const pct = entry.pct;
+      const { player, entry, pct, estimated, seasonAvg, l5Avg, l10Avg } = r;
       const evaluation = pct >= 70 ? "🔥 Erős OVER tendencia"
                        : pct >= 60 ? "✅ OVER valószínű"
                        : pct >= 40 ? "⚖️ Semleges"
@@ -964,6 +974,9 @@ const firebaseConfig = {
                      : pct >= 60 ? "ou-row-good"
                      : pct <= 30 ? "ou-row-cold"
                      : "";
+      const hitCell = entry
+        ? `${entry.hit} / ${entry.total}`
+        : `<span style="color:#facc15;font-size:11px">~ becsült</span>`;
 
       return `
         <tr class="${rowClass}">
@@ -977,7 +990,7 @@ const firebaseConfig = {
           <td class="col-stat">${fmt(l5Avg)}</td>
           <td class="col-stat">${fmt(l10Avg)}</td>
           <td class="col-stat ou-line">${line}</td>
-          <td class="col-ou-wide">${entry.hit} / ${entry.total}</td>
+          <td class="col-ou-wide">${hitCell}</td>
           <td class="col-ou-wide">${ouBadge(pct)}</td>
           <td class="col-ou-wide">${evaluation}</td>
         </tr>`;
@@ -1541,27 +1554,41 @@ const firebaseConfig = {
     const stat = document.getElementById('ev-stat')?.value;
     const line = parseFloat(document.getElementById('ev-line')?.value);
     const odds = parseFloat(document.getElementById('ev-odds')?.value);
-    const form = evPlayerSel.ou_form?.[stat]?.[String(line)];
     const hint = document.getElementById('ev-implied-hint');
 
-    if (!form || form.windows < 2) {
-      card.innerHTML = '<div class="ev-placeholder"><span>Nincs elegendő adat ehhez a vonalhoz.</span></div>';
+    // getHitPct: először ou_form exact lookup, aztán normál-eloszlás fallback
+    const hitResult = getHitPct(evPlayerSel, stat, line, evDir);
+    if (!hitResult) {
+      card.innerHTML = '<div class="ev-placeholder"><span>Nincs szezonstatisztika ehhez a játékoshoz.</span></div>';
       return;
     }
 
-    const ourProb = evDir === 'over' ? form.pct / 100 : 1 - form.pct / 100;
+    const ourProb = hitResult.pct;
     const ourPct  = Math.round(ourProb * 100);
+    const isEst   = hitResult.source === 'becsült';
+    const sourceLabel = isEst
+      ? '⚠️ becsült (normál-eloszlás)'
+      : `historikus · ${hitResult.games} meccs`;
+
+    // Átlagok az avgsHtml-hez (ou_form.avgs vagy getStatValue)
+    const form = evPlayerSel.ou_form?.[stat]?.[String(line)];
+    const avgsRaw = form?.avgs ?? null;
+    const avgsFromStat = getStatValue(evPlayerSel, stat);
+    const avgMap = { season: 'Szezon', l20: 'L20', l10: 'L10', l5: 'L5' };
+    const avgsHtml = avgsRaw
+      ? Object.entries(avgsRaw).map(([w, v]) =>
+          `<span class="ev-avg-chip"><span class="ev-avg-win">${avgMap[w] ?? w}</span>${fmt(v)}</span>`).join('')
+      : [['Szezon', avgsFromStat.season], ['L10', avgsFromStat.l10], ['L5', avgsFromStat.l5]]
+          .filter(([, v]) => v !== null)
+          .map(([k, v]) => `<span class="ev-avg-chip"><span class="ev-avg-win">${k}</span>${fmt(v)}</span>`).join('');
 
     if (!odds || odds < 1.01) {
       if (hint) hint.textContent = '';
-      const avgMap = { season: 'Szezon', l20: 'L20', l10: 'L10', l5: 'L5' };
-      const avgsHtml = Object.entries(form.avgs ?? {}).map(([w, v]) =>
-        `<span class="ev-avg-chip"><span class="ev-avg-win">${avgMap[w] ?? w}</span>${fmt(v)}</span>`).join('');
       card.innerHTML = `
         <div class="ev-prob-preview">
           <div class="ev-stat-label" style="margin-bottom:6px">${evPlayerSel.player_name} — ${stat.toUpperCase()} ${evDir === 'over' ? '>' : '<'} ${line}</div>
           <div class="ev-prob-big ${ourPct >= 60 ? 'pos' : ourPct <= 40 ? 'neg' : ''}">${ourPct}%</div>
-          <div class="ev-prob-hint">modell valószínűség · Add meg az oddsot →</div>
+          <div class="ev-prob-hint">${sourceLabel} · Add meg az oddsot →</div>
           <div class="ev-avgs-row" style="margin-top:12px"><span class="ev-avgs-label">Átlagok:</span>${avgsHtml}</div>
         </div>`;
       return;
@@ -1579,9 +1606,17 @@ const firebaseConfig = {
     : ev > 0    ? { icon: '⚠️', text: 'MARGINÁLIS', cls: 'verdict-warn' }
     :             { icon: '❌', text: 'NE FOGADJ',   cls: 'verdict-skip' };
 
-    const avgMap = { season: 'Szezon', l20: 'L20', l10: 'L10', l5: 'L5' };
-    const avgsHtml = Object.entries(form.avgs ?? {}).map(([w, v]) =>
-      `<span class="ev-avg-chip"><span class="ev-avg-win">${avgMap[w] ?? w}</span>${fmt(v)}</span>`).join('');
+    const windowsBox = form
+      ? `<div class="ev-stat-box">
+          <div class="ev-stat-label">Ablakok</div>
+          <div class="ev-stat-value">${form.over_count}/${form.windows}</div>
+          <div class="ev-stat-sub">over / össz</div>
+        </div>`
+      : `<div class="ev-stat-box">
+          <div class="ev-stat-label">Forrás</div>
+          <div class="ev-stat-value" style="font-size:12px;color:#facc15">Becsült</div>
+          <div class="ev-stat-sub">normál-eloszlás</div>
+        </div>`;
 
     card.innerHTML = `
       <div class="ev-verdict-banner ${verdict.cls}">
@@ -1615,11 +1650,7 @@ const firebaseConfig = {
           <div class="ev-stat-value">${fmt(kelly * 100)}%</div>
           <div class="ev-stat-sub">bankrollból</div>
         </div>
-        <div class="ev-stat-box">
-          <div class="ev-stat-label">Ablakok</div>
-          <div class="ev-stat-value">${form.over_count}/${form.windows}</div>
-          <div class="ev-stat-sub">over / össz</div>
-        </div>
+        ${windowsBox}
       </div>
       <div class="ev-avgs-row"><span class="ev-avgs-label">Átlagok:</span>${avgsHtml}</div>`;
   }
@@ -1650,14 +1681,16 @@ const firebaseConfig = {
     if (!parlayPlayer) return;
     const stat = document.getElementById('parlay-stat')?.value;
     const line = parseFloat(document.getElementById('parlay-line')?.value);
-    const form = parlayPlayer.ou_form?.[stat]?.[String(line)];
-    if (!form || form.windows < 2) return;
-    const prob = parlayDir === 'over' ? form.pct / 100 : 1 - form.pct / 100;
+    const hitResult = getHitPct(parlayPlayer, stat, line, parlayDir);
+    if (!hitResult) return;
+    const prob = hitResult.pct;
+    const overPct = parlayDir === 'over' ? Math.round(prob * 100) : Math.round((1 - prob) * 100);
     parlayList.push({
       id: Date.now(), playerName: parlayPlayer.player_name,
       team: parlayPlayer.team_abbreviation, teamId: parlayPlayer.team_id,
       stat, line, dir: parlayDir, prob,
-      pct: Math.round(prob * 100), overPct: form.pct,
+      pct: Math.round(prob * 100), overPct,
+      estimated: hitResult.source === 'becsült',
     });
     renderParlaySelections();
   }
@@ -1681,7 +1714,7 @@ const firebaseConfig = {
           <span class="parlay-sel-name">${s.playerName}</span>
           <span class="team-badge">${s.team}</span>
           ${b2bBadge(s.teamId)}
-          <span class="parlay-sel-detail">${s.stat.toUpperCase()} ${s.dir === 'over' ? '>' : '<'} ${s.line}</span>
+          <span class="parlay-sel-detail">${s.stat.toUpperCase()} ${s.dir === 'over' ? '>' : '<'} ${s.line}${s.estimated ? ' <span style="color:#facc15;font-size:10px">~</span>' : ''}</span>
         </div>
         <div class="parlay-sel-right">
           <span class="parlay-sel-prob ${s.pct >= 60 ? 'stat-positive' : s.pct <= 40 ? 'stat-negative' : ''}">${s.pct}%</span>
